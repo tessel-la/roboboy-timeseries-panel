@@ -10,9 +10,6 @@ const manifest = JSON.parse(
 const bundlePath = resolve(projectRoot, manifest.entryPoint);
 const bundle = await readFile(bundlePath);
 const integrity = `sha256-${createHash("sha256").update(bundle).digest("base64")}`;
-// ROSLIB's browser bundle resolves window.Image during module evaluation.
-globalThis.window ??= {};
-globalThis.window.Image ??= class Image {};
 const module = await import(
   `${pathToFileURL(bundlePath).href}?validate=${Date.now()}`
 );
@@ -34,7 +31,7 @@ if (integrity !== manifest.integrity) {
 if (
   !module.default ||
   module.default.id !== manifest.id ||
-  module.default.apiVersion !== "1.0.0"
+  module.default.apiVersion !== "2.0.0"
 ) {
   throw new Error("The built module does not match roboboy.panel.json.");
 }

@@ -3,8 +3,8 @@ import type {
   RoboBoyPanelContext,
   RoboBoyPanelDefinition,
   RoboBoyPanelInstance,
+  RoboBoyRosSubscription,
 } from "@tessel-la/roboboy-panel-sdk";
-import ROSLIB from "roslib";
 import {
   createCsv,
   discoverNumericFields,
@@ -26,11 +26,6 @@ interface TimeseriesConfig {
   minY: number;
   maxY: number;
   showPoints: boolean;
-}
-
-interface TopicListResponse {
-  topics?: string[];
-  types?: string[];
 }
 
 const PANEL_ID = "la.tessel.roboboy.timeseries";
@@ -255,7 +250,8 @@ const createPanelInstance = (
   let root: HTMLElement | null = null;
   let canvas: HTMLCanvasElement | null = null;
   let settings: HTMLFormElement | null = null;
-  let topic: ROSLIB.Topic | null = null;
+  let topic: RoboBoyRosSubscription | null = null;
+  let subscriptionGeneration = 0;
   let viewportUnsubscribe: (() => void) | null = null;
   let connectionUnsubscribe: (() => void) | null = null;
   let animationFrame: number | null = null;
@@ -569,13 +565,16 @@ const createPanelInstance = (
   };
 
   const unsubscribeTopic = () => {
-    if (!topic) return;
-    try {
-      topic.unsubscribe();
-    } catch (error) {
-      context.logger.warn("ROS topic cleanup failed.", error);
-    }
+    subscriptionGeneration += 1;
+    const previous = topic;
     topic = null;
+    if (previous) {
+      void previous
+        .unsubscribe()
+        .catch((error) =>
+          context.logger.warn("ROS topic cleanup failed.", error),
+        );
+    }
   };
 
   const onMessage = (message: unknown) => {
@@ -642,14 +641,31 @@ const createPanelInstance = (
       return;
     }
 
-    topic = new ROSLIB.Topic({
-      ros: context.ros,
-      name: config.topic,
-      messageType: config.messageType,
-      queue_length: 1,
-      throttle_rate: config.throttleMs,
-    });
-    topic.subscribe(onMessage as (message: ROSLIB.Message) => void);
+    const generation = ++subscriptionGeneration;
+    void context.ros
+      .subscribe(
+        {
+          topic: config.topic,
+          messageType: config.messageType,
+          queueLength: 1,
+          throttleMs: config.throttleMs,
+        },
+        onMessage,
+      )
+      .then(
+        (subscription) => {
+          if (generation !== subscriptionGeneration) {
+            void subscription.unsubscribe();
+            return;
+          }
+          topic = subscription;
+        },
+        (error) => {
+          if (generation !== subscriptionGeneration) return;
+          context.logger.warn("ROS topic subscription failed.", error);
+          setStatus("Unable to subscribe to this ROS topic", "warn");
+        },
+      );
     setStatus(
       awaitingFieldDetection
         ? "Waiting to detect numeric fields…"
@@ -711,42 +727,33 @@ const createPanelInstance = (
     });
   };
 
-  const refreshTopics = () => {
+  const refreshTopics = async () => {
     if (!context.ros) {
       setStatus("Connect ROS before refreshing topics", "warn");
       return;
     }
     setStatus("Discovering ROS topics…");
-    const ros = context.ros as typeof context.ros & {
-      getTopics(
-        success: (response: TopicListResponse) => void,
-        failure?: (error: unknown) => void,
-      ): void;
-    };
-    ros.getTopics(
-      (response) => {
-        if (!root) return;
-        const selectedTopic = query<HTMLSelectElement>(
-          '[data-field="topic"]',
-        ).value;
-        topicTypes.clear();
-        (response.topics ?? []).forEach((name, index) => {
-          const messageType = response.types?.[index] ?? "";
-          topicTypes.set(name, messageType);
-        });
-        populateTopicSelect(selectedTopic || config.topic);
-        setStatus(
-          `Discovered ${topicTypes.size} topics`,
-          topicTypes.size ? "live" : "warn",
-        );
-      },
-      (error) => {
-        if (!root) return;
-        context.logger.warn("ROS topic discovery failed.", error);
-        populateTopicSelect(config.topic);
-        setStatus("Topic discovery failed; use Enter another topic", "warn");
-      },
-    );
+    try {
+      const topics = await context.ros.getTopics();
+      if (!root) return;
+      const selectedTopic = query<HTMLSelectElement>(
+        '[data-field="topic"]',
+      ).value;
+      topicTypes.clear();
+      topics.forEach(({ name, messageType }) =>
+        topicTypes.set(name, messageType),
+      );
+      populateTopicSelect(selectedTopic || config.topic);
+      setStatus(
+        `Discovered ${topicTypes.size} topics`,
+        topicTypes.size ? "live" : "warn",
+      );
+    } catch (error) {
+      if (!root) return;
+      context.logger.warn("ROS topic discovery failed.", error);
+      populateTopicSelect(config.topic);
+      setStatus("Topic discovery failed; use Enter another topic", "warn");
+    }
   };
 
   const exportCsv = () => {
@@ -923,7 +930,7 @@ const createPanelInstance = (
 };
 
 const definition: RoboBoyPanelDefinition = {
-  apiVersion: "1.0.0",
+  apiVersion: "2.0.0",
   id: PANEL_ID,
   activate: createPanelInstance,
 };

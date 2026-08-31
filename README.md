@@ -1,11 +1,11 @@
 # Robo-Boy ROS Time Series Panel
 
-A standalone external panel for inspecting numeric ROS telemetry without changing Robo-Boy core. It bundles its
-own ROSLIB client constructors and uses only the public panel context.
+A standalone external panel for inspecting numeric ROS telemetry without changing Robo-Boy core. It uses the
+Panel API v2 ROS broker and contains no ROSLIB client or direct rosbridge connection.
 
 ## Features
 
-- Presents discovered topics and message types in a sorted source dropdown.
+- Presents permitted discovered topics and message types in a sorted source dropdown.
 - Plots up to eight nested or indexed numeric fields selected from detected message data.
 - Automatically detects numeric fields from the first message and exposes them as removable field chips.
 - Configurable time window, sample limit, rosbridge throttle, automatic/manual Y range, and point markers.
@@ -39,5 +39,7 @@ inventory entry is needed only for a published remote installation.
 
 The configuration opens as a bounded, scrollable drawer so all controls remain reachable in short mobile tiles.
 
-The panel is trusted same-realm deployment code. Its `ros` capability supplies the shared connection; it does not
-access Robo-Boy stores or `window.ros`.
+The panel runs in an opaque-origin iframe. Its manifest currently permits discovery and subscription only below
+`/telemetry/**` and `/diagnostics/**`; the host filters discovery and rejects every other topic. A deployment
+that needs another namespace must add that scope deliberately and review it during installation. The panel never
+receives the raw ROSLIB connection, parent DOM, Robo-Boy stores, cookies, or unrelated runtime endpoints.
