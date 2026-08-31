@@ -21,8 +21,12 @@ npm run integrity
 npm run validate
 ```
 
-After changing the bundle, copy the value printed by `npm run integrity` into `roboboy.panel.json`. The SDK is a
-local type-only dependency in this workspace; switch it to the published SDK version when that package exists.
+After changing the bundle, copy the value printed by `npm run integrity` into `roboboy.panel.json`. The type-only
+SDK development dependency is pinned to the versioned Panel SDK GitHub release.
+
+To load this working tree in Robo-Boy, list `robo-boy-timeseries-panel` in a schema-v2 local source's
+`repositories` array and rerun the panel installer. A local source reads the manifest and bundle directly; an
+inventory entry is needed only for a published remote installation.
 
 ## Use
 
@@ -35,5 +39,5 @@ local type-only dependency in this workspace; switch it to the published SDK ver
 
 The configuration opens as a bounded, scrollable drawer so all controls remain reachable in short mobile tiles.
 
-The panel is trusted same-realm deployment code, like every v1 external panel. Its `ros` capability supplies the
-shared connection; it does not access Robo-Boy stores or `window.ros`.
+The panel is trusted same-realm deployment code. Its `ros` capability supplies the shared connection; it does not
+access Robo-Boy stores or `window.ros`.
