@@ -50,13 +50,20 @@ var discoverNumericFields = (message, options = {}) => {
   return fields;
 };
 var chooseAutoPlotFields = (fields, limit = 8) => {
-  const telemetryFields = fields.filter(
-    (path) => !/(^|\.)stamp\.(sec|nanosec)$/.test(path)
-  );
+  const telemetryFields = fields.filter((path) => !isRosTimestampField(path));
   return (telemetryFields.length ? telemetryFields : fields).slice(
     0,
     Math.max(0, limit)
   );
+};
+var isRosTimestampField = (path) => /(^|\.)stamp\.(sec|nanosec)$/.test(path);
+var migrateLegacyAutoPlotFields = (configuredFields, discoveredFields, limit = 8) => {
+  const retained = configuredFields.filter(
+    (path) => !isRosTimestampField(path)
+  );
+  return [
+    .../* @__PURE__ */ new Set([...retained, ...chooseAutoPlotFields(discoveredFields, limit)])
+  ].slice(0, Math.max(0, limit));
 };
 var trimSamples = (samples, latestTime, timeWindowSec, sampleLimit) => {
   const minimumTime = latestTime - Math.max(1, timeWindowSec) * 1e3;
@@ -114,6 +121,7 @@ var COLORS = [
   "#8be9fd"
 ];
 var DEFAULT_CONFIG = {
+  schemaVersion: 2,
   topic: "",
   messageType: "",
   fieldPaths: [],
@@ -134,6 +142,7 @@ var clamp = (value, fallback, min, max) => {
 var sanitizeConfig = (value) => {
   const candidate = value && typeof value === "object" ? value : {};
   return {
+    schemaVersion: 2,
     topic: typeof candidate.topic === "string" ? candidate.topic.trim() : DEFAULT_CONFIG.topic,
     messageType: typeof candidate.messageType === "string" ? candidate.messageType.trim() : DEFAULT_CONFIG.messageType,
     fieldPaths: Array.isArray(candidate.fieldPaths) ? candidate.fieldPaths.filter(
@@ -302,12 +311,17 @@ var createPanelInstance = (context) => {
   let paused = false;
   let awaitingFieldDetection = false;
   let receivedMessages = 0;
-  let config = sanitizeConfig(
-    context.storage?.get(
-      "config",
-      DEFAULT_CONFIG
-    )
+  const storedConfig = context.storage?.get(
+    "config",
+    DEFAULT_CONFIG
   );
+  const storedCandidate = storedConfig && typeof storedConfig === "object" ? storedConfig : {};
+  let needsLegacyFieldMigration = storedCandidate.schemaVersion !== 2 && Array.isArray(storedCandidate.fieldPaths) && storedCandidate.fieldPaths.some(
+    (path) => typeof path === "string" && isRosTimestampField(path)
+  ) && storedCandidate.fieldPaths.some(
+    (path) => typeof path === "string" && !isRosTimestampField(path)
+  );
+  let config = sanitizeConfig(storedConfig);
   let draftFieldPaths = [...config.fieldPaths];
   let discoveredFields = [];
   let discoveredTopic = "";
@@ -539,6 +553,19 @@ var createPanelInstance = (context) => {
       });
       discoveredTopic = config.topic;
       renderFieldControls();
+    }
+    if (needsLegacyFieldMigration) {
+      const migratedFields = migrateLegacyAutoPlotFields(
+        config.fieldPaths,
+        discoveredFields,
+        AUTO_PLOT_FIELD_LIMIT
+      );
+      config = { ...config, fieldPaths: migratedFields };
+      draftFieldPaths = [...migratedFields];
+      needsLegacyFieldMigration = false;
+      persistConfig();
+      renderFieldControls();
+      clearSamples();
     }
     if (awaitingFieldDetection) {
       if (discoveredFields.length === 0) {

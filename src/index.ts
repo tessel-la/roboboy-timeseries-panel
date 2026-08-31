@@ -11,12 +11,15 @@ import {
   discoverNumericFields,
   getNumericValueAtPath,
   getPlotRange,
+  isRosTimestampField,
+  migrateLegacyAutoPlotFields,
   parseFieldPaths,
   trimSamples,
   type TimeseriesSample,
 } from "./data";
 
 interface TimeseriesConfig {
+  schemaVersion: 2;
   topic: string;
   messageType: string;
   fieldPaths: string[];
@@ -41,6 +44,7 @@ const COLORS = [
   "#8be9fd",
 ];
 const DEFAULT_CONFIG: TimeseriesConfig = {
+  schemaVersion: 2,
   topic: "",
   messageType: "",
   fieldPaths: [],
@@ -79,6 +83,7 @@ const sanitizeConfig = (value: unknown): TimeseriesConfig => {
       ? (value as Partial<TimeseriesConfig>)
       : {};
   return {
+    schemaVersion: 2,
     topic:
       typeof candidate.topic === "string"
         ? candidate.topic.trim()
@@ -262,12 +267,24 @@ const createPanelInstance = (
   let paused = false;
   let awaitingFieldDetection = false;
   let receivedMessages = 0;
-  let config = sanitizeConfig(
-    context.storage?.get(
-      "config",
-      DEFAULT_CONFIG as unknown as RoboBoyJsonObject,
-    ),
+  const storedConfig = context.storage?.get(
+    "config",
+    DEFAULT_CONFIG as unknown as RoboBoyJsonObject,
   );
+  const storedCandidate =
+    storedConfig && typeof storedConfig === "object"
+      ? (storedConfig as Partial<TimeseriesConfig>)
+      : {};
+  let needsLegacyFieldMigration =
+    storedCandidate.schemaVersion !== 2 &&
+    Array.isArray(storedCandidate.fieldPaths) &&
+    storedCandidate.fieldPaths.some(
+      (path) => typeof path === "string" && isRosTimestampField(path),
+    ) &&
+    storedCandidate.fieldPaths.some(
+      (path) => typeof path === "string" && !isRosTimestampField(path),
+    );
+  let config = sanitizeConfig(storedConfig);
   let draftFieldPaths = [...config.fieldPaths];
   let discoveredFields: string[] = [];
   let discoveredTopic = "";
@@ -548,6 +565,19 @@ const createPanelInstance = (
       discoveredTopic = config.topic;
       renderFieldControls();
     }
+    if (needsLegacyFieldMigration) {
+      const migratedFields = migrateLegacyAutoPlotFields(
+        config.fieldPaths,
+        discoveredFields,
+        AUTO_PLOT_FIELD_LIMIT,
+      );
+      config = { ...config, fieldPaths: migratedFields };
+      draftFieldPaths = [...migratedFields];
+      needsLegacyFieldMigration = false;
+      persistConfig();
+      renderFieldControls();
+      clearSamples();
+    }
     if (awaitingFieldDetection) {
       if (discoveredFields.length === 0) {
         setStatus("No numeric fields detected", "warn");
@@ -631,7 +661,8 @@ const createPanelInstance = (
         (error) => {
           if (generation !== subscriptionGeneration) return;
           context.logger.warn("ROS topic subscription failed.", error);
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           setStatus(
             message.includes("not permitted")
               ? `Reapprove ${config.topic} in Configure`

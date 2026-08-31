@@ -6,6 +6,7 @@ import {
   discoverNumericFields,
   getNumericValueAtPath,
   getPlotRange,
+  migrateLegacyAutoPlotFields,
   parseFieldPaths,
   trimSamples,
 } from "../src/data.ts";
@@ -39,6 +40,22 @@ test("prefers telemetry values over ROS header timestamps for automatic plots", 
     ["position[0]", "position[1]"],
   );
   assert.deepEqual(chooseAutoPlotFields(["stamp.sec"]), ["stamp.sec"]);
+});
+
+test("migrates legacy automatic timestamp fields to telemetry fields", () => {
+  assert.deepEqual(
+    migrateLegacyAutoPlotFields(
+      ["header.stamp.sec", "header.stamp.nanosec", "position[0]"],
+      [
+        "header.stamp.sec",
+        "header.stamp.nanosec",
+        "position[0]",
+        "position[1]",
+        "velocity[0]",
+      ],
+    ),
+    ["position[0]", "position[1]", "velocity[0]"],
+  );
 });
 
 test("normalizes field configuration and trims samples by time and count", () => {
