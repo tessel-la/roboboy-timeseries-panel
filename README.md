@@ -42,3 +42,5 @@ The configuration opens as a bounded, scrollable drawer so all controls remain r
 The panel runs in an opaque-origin iframe. It asks Robo-Boy to open a trusted topic picker; the host enumerates the
 full ROS graph, but returns and authorizes only the topic explicitly selected by the user. The panel never receives
 the full topic inventory, raw ROSLIB connection, parent DOM, Robo-Boy stores, cookies, or unrelated runtime endpoints.
+Robo-Boy remembers the approved pair with the current workspace tile so reconnects and mobile page suspension do
+not require another approval.

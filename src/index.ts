@@ -631,7 +631,13 @@ const createPanelInstance = (
         (error) => {
           if (generation !== subscriptionGeneration) return;
           context.logger.warn("ROS topic subscription failed.", error);
-          setStatus("Unable to subscribe to this ROS topic", "warn");
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(
+            message.includes("not permitted")
+              ? `Reapprove ${config.topic} in Configure`
+              : "Unable to subscribe to this ROS topic",
+            "warn",
+          );
         },
       );
     setStatus(
