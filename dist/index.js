@@ -116,7 +116,6 @@ var DEFAULT_CONFIG = {
   maxY: 1,
   showPoints: false
 };
-var CUSTOM_TOPIC_VALUE = "__custom_topic__";
 var AUTO_FIELDS_VALUE = "__auto_fields__";
 var clamp = (value, fallback, min, max) => {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -150,7 +149,7 @@ var sanitizeConfig = (value) => {
 };
 var PANEL_MARKUP = `
   <style>
-    .rb-timeseries { position: relative; height: 100%; min-height: 180px; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 10px; padding: 12px; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 system-ui, sans-serif; overflow: hidden; }
+    .rb-timeseries { position: relative; height: 100%; min-height: 180px; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 10px; padding: 12px; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 var(--font-family-ui, system-ui, sans-serif); overflow: hidden; }
     .rb-timeseries[data-inactive] { opacity: .78; }
     .rb-timeseries * { box-sizing: border-box; }
     .rb-timeseries__toolbar, .rb-timeseries__actions, .rb-timeseries__status, .rb-timeseries__legend { display: flex; align-items: center; gap: 8px; }
@@ -169,8 +168,8 @@ var PANEL_MARKUP = `
     .rb-timeseries__settings-header button { padding: 4px 8px; }
     .rb-timeseries__source-grid, .rb-timeseries__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .rb-timeseries label { display: grid; gap: 4px; color: var(--text-secondary, #aeb8c4); min-width: 0; }
-    .rb-timeseries label.wide, .rb-timeseries__fields, .rb-timeseries__manual-source { grid-column: 1 / -1; }
-    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 5px; padding: 6px 7px; color: var(--text-color, #eef3f8); background: var(--background-primary, #11161d); font: inherit; }
+    .rb-timeseries label.wide, .rb-timeseries__fields { grid-column: 1 / -1; }
+    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 7px 9px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
     .rb-timeseries__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     .rb-timeseries__input-row button { white-space: nowrap; }
     .rb-timeseries__selected-fields { min-height: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; }
@@ -185,9 +184,9 @@ var PANEL_MARKUP = `
     .rb-timeseries__settings-actions { position: sticky; bottom: -12px; display: flex; justify-content: flex-start; gap: 8px; margin-top: auto; padding: 10px 0 2px; background: var(--card-bg, #242b36); }
     .rb-timeseries__settings-actions button { min-width: 92px; }
     .rb-timeseries__settings-actions button[type="submit"] { border-color: var(--primary-color, #5ca9ff); background: var(--primary-color, #347fc4); }
-    .rb-timeseries__chart { min-height: 100px; position: relative; border: 1px solid var(--border-color, #343d49); border-radius: 8px; overflow: hidden; background: #10151c; }
+    .rb-timeseries__chart { min-height: 100px; position: relative; border: 1px solid var(--border-color, #343d49); border-radius: 8px; overflow: hidden; background: var(--background-color, #10151c); }
     .rb-timeseries canvas { display: block; width: 100%; height: 100%; }
-    .rb-timeseries__empty { position: absolute; inset: 0; display: grid; place-items: center; color: #8f9aa8; pointer-events: none; }
+    .rb-timeseries__empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-secondary, #8f9aa8); pointer-events: none; }
     .rb-timeseries__empty[hidden] { display: none; }
     .rb-timeseries__footer { min-width: 0; display: flex; align-items: center; gap: 10px; }
     .rb-timeseries__legend { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
@@ -200,7 +199,7 @@ var PANEL_MARKUP = `
       .rb-timeseries__title { width: 100%; }
       .rb-timeseries__settings { inset: 44px 6px 6px; width: auto; padding: 10px; -webkit-overflow-scrolling: touch; }
       .rb-timeseries__source-grid, .rb-timeseries__advanced-grid { grid-template-columns: minmax(0, 1fr); }
-      .rb-timeseries label.wide, .rb-timeseries__fields, .rb-timeseries__manual-source { grid-column: auto; }
+      .rb-timeseries label.wide, .rb-timeseries__fields { grid-column: auto; }
       .rb-timeseries__settings-actions { bottom: -10px; }
       .rb-timeseries__footer { align-items: flex-start; flex-direction: column; }
       .rb-timeseries__legend { width: 100%; }
@@ -230,8 +229,8 @@ var PANEL_MARKUP = `
       <div class="rb-timeseries__source-grid">
         <label class="wide">Topic
           <span class="rb-timeseries__input-row">
-            <select data-field="topic" aria-label="Topic"><option value="">Discovering topics\u2026</option></select>
-            <button type="button" data-action="refresh-topics" aria-label="Refresh ROS topics">Refresh</button>
+            <select data-field="topic" aria-label="Topic"><option value="">No topic approved</option></select>
+            <button type="button" data-action="choose-topic" aria-label="Choose ROS topic">Choose\u2026</button>
           </span>
         </label>
         <div class="rb-timeseries__fields">
@@ -249,9 +248,6 @@ var PANEL_MARKUP = `
       <details class="rb-timeseries__advanced">
         <summary>Advanced plot settings</summary>
         <div class="rb-timeseries__advanced-grid">
-          <label class="rb-timeseries__manual-source" data-role="manual-source" hidden>Custom topic path
-            <input data-field="customTopic" placeholder="/joint_states" autocomplete="off" />
-          </label>
           <label class="wide">Message type
             <input data-field="messageType" placeholder="sensor_msgs/msg/JointState" autocomplete="off" />
           </label>
@@ -276,7 +272,7 @@ var PANEL_MARKUP = `
         </div>
       </details>
       <div class="rb-timeseries__settings-actions">
-        <button type="submit">Apply</button>
+        <button type="button" data-action="apply-settings">Apply</button>
         <button type="button" data-action="close-settings">Cancel</button>
       </div>
     </form>
@@ -313,11 +309,6 @@ var createPanelInstance = (context) => {
     if (!element) throw new Error(`ROS Time Series is missing ${selector}.`);
     return element;
   };
-  const setManualSourceVisibility = () => {
-    if (!root) return;
-    const isManual = query('[data-field="topic"]').value === CUSTOM_TOPIC_VALUE;
-    query('[data-role="manual-source"]').hidden = !isManual;
-  };
   const populateTopicSelect = (preferredValue) => {
     if (!root) return;
     const select = query('[data-field="topic"]');
@@ -325,7 +316,7 @@ var createPanelInstance = (context) => {
     select.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = topicTypes.size ? "Select a ROS topic\u2026" : "No discovered topics";
+    placeholder.textContent = topicTypes.size ? "Select an approved ROS topic\u2026" : "No topic approved";
     select.append(placeholder);
     [...topicTypes.entries()].sort(([left], [right]) => left.localeCompare(right)).forEach(([name, messageType]) => {
       const option = document.createElement("option");
@@ -333,18 +324,13 @@ var createPanelInstance = (context) => {
       option.textContent = messageType ? `${name} \xB7 ${messageType}` : name;
       select.append(option);
     });
-    if (selectedValue && selectedValue !== CUSTOM_TOPIC_VALUE && !topicTypes.has(selectedValue)) {
+    if (selectedValue && !topicTypes.has(selectedValue)) {
       const saved = document.createElement("option");
       saved.value = selectedValue;
       saved.textContent = `${selectedValue} \xB7 saved`;
       select.append(saved);
     }
-    const custom = document.createElement("option");
-    custom.value = CUSTOM_TOPIC_VALUE;
-    custom.textContent = "Enter another topic\u2026";
-    select.append(custom);
     select.value = selectedValue || "";
-    setManualSourceVisibility();
   };
   const renderFieldControls = () => {
     if (!root) return;
@@ -648,7 +634,6 @@ var createPanelInstance = (context) => {
     if (!root) return;
     draftFieldPaths = [...config.fieldPaths];
     populateTopicSelect(config.topic);
-    query('[data-field="customTopic"]').value = config.topic;
     query('[data-field="messageType"]').value = config.messageType;
     renderFieldControls();
     query('[data-field="timeWindowSec"]').value = String(
@@ -672,7 +657,7 @@ var createPanelInstance = (context) => {
       '[data-field="topic"]'
     ).value;
     return sanitizeConfig({
-      topic: selectedTopic === CUSTOM_TOPIC_VALUE ? query('[data-field="customTopic"]').value : selectedTopic,
+      topic: selectedTopic,
       messageType: query('[data-field="messageType"]').value,
       fieldPaths: parseFieldPaths(
         query('[data-field="fieldPaths"]').value
@@ -688,32 +673,40 @@ var createPanelInstance = (context) => {
       showPoints: query('[data-field="showPoints"]').checked
     });
   };
-  const refreshTopics = async () => {
+  const chooseTopic = async () => {
     if (!context.ros) {
-      setStatus("Connect ROS before refreshing topics", "warn");
+      setStatus("Connect ROS before choosing a topic", "warn");
       return;
     }
-    setStatus("Discovering ROS topics\u2026");
+    const topicSelectingRos = context.ros;
+    if (typeof topicSelectingRos.selectTopic !== "function") {
+      setStatus("This Robo-Boy host does not support topic selection", "warn");
+      return;
+    }
+    setStatus("Waiting for topic approval\u2026");
     try {
-      const topics = await context.ros.getTopics();
+      const selected = await topicSelectingRos.selectTopic({
+        currentTopic: query('[data-field="topic"]').value || config.topic
+      });
       if (!root) return;
-      const selectedTopic = query(
+      const previousTopic = query(
         '[data-field="topic"]'
       ).value;
       topicTypes.clear();
-      topics.forEach(
-        ({ name, messageType }) => topicTypes.set(name, messageType)
-      );
-      populateTopicSelect(selectedTopic || config.topic);
-      setStatus(
-        `Discovered ${topicTypes.size} topics`,
-        topicTypes.size ? "live" : "warn"
-      );
+      topicTypes.set(selected.name, selected.messageType);
+      populateTopicSelect(selected.name);
+      query('[data-field="messageType"]').value = selected.messageType;
+      if (selected.name !== previousTopic) {
+        draftFieldPaths = [];
+        discoveredFields = [];
+        discoveredTopic = "";
+        renderFieldControls();
+      }
+      setStatus(`Approved \xB7 ${selected.name}`, "live");
     } catch (error) {
       if (!root) return;
-      context.logger.warn("ROS topic discovery failed.", error);
-      populateTopicSelect(config.topic);
-      setStatus("Topic discovery failed; use Enter another topic", "warn");
+      context.logger.info("ROS topic selection was not completed.", error);
+      setStatus("Topic selection cancelled", "warn");
     }
   };
   const exportCsv = () => {
@@ -737,6 +730,14 @@ var createPanelInstance = (context) => {
       String(open)
     );
     scheduleRender();
+  };
+  const applySettings = () => {
+    config = readConfigInputs();
+    persistConfig();
+    paused = false;
+    query('[data-action="pause"]').textContent = "Pause";
+    setSettingsOpen(false);
+    configureSubscription();
   };
   return {
     mount(container) {
@@ -762,8 +763,10 @@ var createPanelInstance = (context) => {
           setSettingsOpen(settings.hidden);
         } else if (action === "close-settings") {
           setSettingsOpen(false);
-        } else if (action === "refresh-topics") {
-          refreshTopics();
+        } else if (action === "choose-topic") {
+          void chooseTopic();
+        } else if (action === "apply-settings") {
+          applySettings();
         } else if (action === "add-custom-field") {
           const input = query('[data-field="customField"]');
           addDraftField(input.value);
@@ -783,12 +786,7 @@ var createPanelInstance = (context) => {
       });
       settings.addEventListener("submit", (event) => {
         event.preventDefault();
-        config = readConfigInputs();
-        persistConfig();
-        paused = false;
-        query('[data-action="pause"]').textContent = "Pause";
-        setSettingsOpen(false);
-        configureSubscription();
+        applySettings();
       });
       query('[data-field="autoScale"]').addEventListener(
         "change",
@@ -802,12 +800,6 @@ var createPanelInstance = (context) => {
         "change",
         (event) => {
           const selectedTopic = event.currentTarget.value;
-          setManualSourceVisibility();
-          if (selectedTopic === CUSTOM_TOPIC_VALUE) {
-            query(".rb-timeseries__advanced").open = true;
-            query('[data-field="customTopic"]').focus();
-            return;
-          }
           const detectedType = topicTypes.get(selectedTopic);
           if (detectedType)
             query('[data-field="messageType"]').value = detectedType;
@@ -840,7 +832,6 @@ var createPanelInstance = (context) => {
           );
       });
       configureSubscription();
-      refreshTopics();
       scheduleRender();
     },
     setActive(isActive) {

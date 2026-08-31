@@ -39,7 +39,6 @@ inventory entry is needed only for a published remote installation.
 
 The configuration opens as a bounded, scrollable drawer so all controls remain reachable in short mobile tiles.
 
-The panel runs in an opaque-origin iframe. Its manifest currently permits discovery and subscription only below
-`/telemetry/**` and `/diagnostics/**`; the host filters discovery and rejects every other topic. A deployment
-that needs another namespace must add that scope deliberately and review it during installation. The panel never
-receives the raw ROSLIB connection, parent DOM, Robo-Boy stores, cookies, or unrelated runtime endpoints.
+The panel runs in an opaque-origin iframe. It asks Robo-Boy to open a trusted topic picker; the host enumerates the
+full ROS graph, but returns and authorizes only the topic explicitly selected by the user. The panel never receives
+the full topic inventory, raw ROSLIB connection, parent DOM, Robo-Boy stores, cookies, or unrelated runtime endpoints.
