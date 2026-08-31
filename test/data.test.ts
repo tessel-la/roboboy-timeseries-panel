@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  chooseAutoPlotFields,
   createCsv,
   discoverNumericFields,
   getNumericValueAtPath,
@@ -25,6 +26,19 @@ test("discovers bounded numeric leaf fields", () => {
     }),
     ["linear.x", "linear.y", "values[0]", "values[1]"],
   );
+});
+
+test("prefers telemetry values over ROS header timestamps for automatic plots", () => {
+  assert.deepEqual(
+    chooseAutoPlotFields([
+      "header.stamp.sec",
+      "header.stamp.nanosec",
+      "position[0]",
+      "position[1]",
+    ]),
+    ["position[0]", "position[1]"],
+  );
+  assert.deepEqual(chooseAutoPlotFields(["stamp.sec"]), ["stamp.sec"]);
 });
 
 test("normalizes field configuration and trims samples by time and count", () => {

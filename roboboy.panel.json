@@ -5,7 +5,7 @@
   "description": "Plots configurable numeric fields from a ROS topic with pause, scaling, retention, and CSV controls.",
   "version": "2.0.0",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-zWoeYHZO776c8MDgGYiNlJit8WkUXdXZdeR2VAlgonE=",
+  "integrity": "sha256-850ghApBYrz/nISprny4kYK07jcml1s/mTQ5ZL1Ujnk=",
   "compatibility": {
     "panelApi": "^2.0.0",
     "roboboy": ">=0.3.0-0 <1.0.0"

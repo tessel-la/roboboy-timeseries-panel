@@ -5,9 +5,9 @@ Panel API v2 ROS broker and contains no ROSLIB client or direct rosbridge connec
 
 ## Features
 
-- Presents permitted discovered topics and message types in a sorted source dropdown.
-- Plots up to eight nested or indexed numeric fields selected from detected message data.
-- Automatically detects numeric fields from the first message and exposes them as removable field chips.
+- Opens Robo-Boy's trusted topic picker without exposing the complete ROS graph to the panel.
+- Subscribes immediately after approval and plots up to eight nested or indexed numeric fields.
+- Automatically detects available numeric fields from the first message and exposes them as removable field chips.
 - Configurable time window, sample limit, rosbridge throttle, automatic/manual Y range, and point markers.
 - Pause/resume, clear, CSV export, latest-value legend, connection state, and per-tile persisted settings.
 - Stops sampling while the tile is inactive and releases the ROS subscription on reconfigure or unmount.
@@ -31,11 +31,11 @@ inventory entry is needed only for a published remote installation.
 ## Use
 
 1. Add **ROS Time Series** to the Robo-Boy workspace.
-2. Open **Configure** and choose a topic from the discovered-topic dropdown.
-3. Apply with auto-detect enabled; numeric fields from the first message appear as removable chips and selectable
-   data-field options.
+2. Open **Configure**, choose a topic, and approve it in Robo-Boy's trusted picker. The panel subscribes immediately.
+3. Numeric fields from the first live message appear automatically as removable chips and selectable data-field
+   options; no second Apply step is required.
 4. Open **Advanced plot settings** only when you need to change retention, bridge throttling, Y scaling, point
-   markers, or enter a custom topic/field path.
+   markers, or enter a custom field path.
 
 The configuration opens as a bounded, scrollable drawer so all controls remain reachable in short mobile tiles.
 

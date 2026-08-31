@@ -83,6 +83,19 @@ export const discoverNumericFields = (
   return fields;
 };
 
+export const chooseAutoPlotFields = (
+  fields: readonly string[],
+  limit = 8,
+): string[] => {
+  const telemetryFields = fields.filter(
+    (path) => !/(^|\.)stamp\.(sec|nanosec)$/.test(path),
+  );
+  return (telemetryFields.length ? telemetryFields : fields).slice(
+    0,
+    Math.max(0, limit),
+  );
+};
+
 export const trimSamples = (
   samples: readonly TimeseriesSample[],
   latestTime: number,

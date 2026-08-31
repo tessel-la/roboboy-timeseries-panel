@@ -49,6 +49,15 @@ var discoverNumericFields = (message, options = {}) => {
   visit(message, "", 0);
   return fields;
 };
+var chooseAutoPlotFields = (fields, limit = 8) => {
+  const telemetryFields = fields.filter(
+    (path) => !/(^|\.)stamp\.(sec|nanosec)$/.test(path)
+  );
+  return (telemetryFields.length ? telemetryFields : fields).slice(
+    0,
+    Math.max(0, limit)
+  );
+};
 var trimSamples = (samples, latestTime, timeWindowSec, sampleLimit) => {
   const minimumTime = latestTime - Math.max(1, timeWindowSec) * 1e3;
   const byTime = samples.filter((sample) => sample.time >= minimumTime);
@@ -107,7 +116,7 @@ var COLORS = [
 var DEFAULT_CONFIG = {
   topic: "",
   messageType: "",
-  fieldPaths: ["data"],
+  fieldPaths: [],
   timeWindowSec: 15,
   sampleLimit: 1200,
   throttleMs: 33,
@@ -116,7 +125,8 @@ var DEFAULT_CONFIG = {
   maxY: 1,
   showPoints: false
 };
-var AUTO_FIELDS_VALUE = "__auto_fields__";
+var AUTO_PLOT_FIELD_LIMIT = 8;
+var DISCOVERED_FIELD_LIMIT = 64;
 var clamp = (value, fallback, min, max) => {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? Math.min(max, Math.max(min, numeric)) : fallback;
@@ -172,6 +182,9 @@ var PANEL_MARKUP = `
     .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 7px 9px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
     .rb-timeseries__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     .rb-timeseries__input-row button { white-space: nowrap; }
+    .rb-timeseries__topic-row { min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 6px 7px 6px 9px; background: var(--background-color, #11161d); }
+    .rb-timeseries__topic-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color, #eef3f8); }
+    .rb-timeseries__topic-row button { flex: 0 0 auto; }
     .rb-timeseries__selected-fields { min-height: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; }
     .rb-timeseries__field-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-color, #414b59); border-radius: 999px; padding: 3px 7px; color: var(--text-color, #eef3f8); background: #ffffff0a; }
     .rb-timeseries__field-chip button { border: 0; padding: 0 2px; color: var(--text-secondary, #aeb8c4); background: transparent; font-size: 16px; line-height: 1; }
@@ -228,29 +241,25 @@ var PANEL_MARKUP = `
       </div>
       <div class="rb-timeseries__source-grid">
         <label class="wide">Topic
-          <span class="rb-timeseries__input-row">
-            <select data-field="topic" aria-label="Topic"><option value="">No topic approved</option></select>
-            <button type="button" data-action="choose-topic" aria-label="Choose ROS topic">Choose\u2026</button>
+          <span class="rb-timeseries__topic-row">
+            <strong data-role="selected-topic">No topic selected</strong>
+            <button type="button" data-action="choose-topic" aria-label="Choose ROS topic">Choose topic\u2026</button>
           </span>
         </label>
         <div class="rb-timeseries__fields">
           <label>Data fields
             <select data-field="fieldPicker" aria-label="Data fields">
               <option value="">Add a numeric field\u2026</option>
-              <option value="__auto_fields__">Auto-detect from the next message</option>
             </select>
           </label>
           <input data-field="fieldPaths" type="hidden" />
           <div class="rb-timeseries__selected-fields" data-role="selected-fields"></div>
-          <p class="rb-timeseries__helper" data-role="fields-help">Choose auto-detect to find numeric data in the first message.</p>
+          <p class="rb-timeseries__helper" data-role="fields-help">Numeric fields are detected automatically from live messages.</p>
         </div>
       </div>
       <details class="rb-timeseries__advanced">
         <summary>Advanced plot settings</summary>
         <div class="rb-timeseries__advanced-grid">
-          <label class="wide">Message type
-            <input data-field="messageType" placeholder="sensor_msgs/msg/JointState" autocomplete="off" />
-          </label>
           <label>Window (seconds)<input data-field="timeWindowSec" type="number" min="1" max="600" step="1" /></label>
           <label>Sample cap<input data-field="sampleLimit" type="number" min="100" max="10000" step="100" /></label>
           <label>Bridge throttle
@@ -276,7 +285,7 @@ var PANEL_MARKUP = `
         <button type="button" data-action="close-settings">Cancel</button>
       </div>
     </form>
-    <div class="rb-timeseries__chart" data-role="chart"><canvas aria-label="ROS numeric time-series chart"></canvas><div class="rb-timeseries__empty" data-role="empty">Choose a topic and fields in Configure.</div></div>
+    <div class="rb-timeseries__chart" data-role="chart"><canvas aria-label="ROS numeric time-series chart"></canvas><div class="rb-timeseries__empty" data-role="empty">Choose a topic. Numeric fields are detected automatically.</div></div>
     <footer class="rb-timeseries__footer"><div class="rb-timeseries__legend" data-role="legend"></div><span class="rb-timeseries__stats" data-role="stats">0 samples</span></footer>
   </section>
 `;
@@ -303,34 +312,16 @@ var createPanelInstance = (context) => {
   let discoveredFields = [];
   let discoveredTopic = "";
   const samples = /* @__PURE__ */ new Map();
-  const topicTypes = /* @__PURE__ */ new Map();
   const query = (selector) => {
     const element = root?.querySelector(selector);
     if (!element) throw new Error(`ROS Time Series is missing ${selector}.`);
     return element;
   };
-  const populateTopicSelect = (preferredValue) => {
+  const renderSelectedTopic = () => {
     if (!root) return;
-    const select = query('[data-field="topic"]');
-    const selectedValue = preferredValue ?? select.value ?? config.topic;
-    select.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = topicTypes.size ? "Select an approved ROS topic\u2026" : "No topic approved";
-    select.append(placeholder);
-    [...topicTypes.entries()].sort(([left], [right]) => left.localeCompare(right)).forEach(([name, messageType]) => {
-      const option = document.createElement("option");
-      option.value = name;
-      option.textContent = messageType ? `${name} \xB7 ${messageType}` : name;
-      select.append(option);
-    });
-    if (selectedValue && !topicTypes.has(selectedValue)) {
-      const saved = document.createElement("option");
-      saved.value = selectedValue;
-      saved.textContent = `${selectedValue} \xB7 saved`;
-      select.append(saved);
-    }
-    select.value = selectedValue || "";
+    const selected = query('[data-role="selected-topic"]');
+    selected.textContent = config.topic ? `${config.topic}${config.messageType ? ` \xB7 ${config.messageType}` : ""}` : "No topic selected";
+    selected.title = selected.textContent;
   };
   const renderFieldControls = () => {
     if (!root) return;
@@ -341,10 +332,10 @@ var createPanelInstance = (context) => {
     hidden.value = draftFieldPaths.join(", ");
     selected.replaceChildren();
     if (draftFieldPaths.length === 0) {
-      const automatic2 = document.createElement("span");
-      automatic2.className = "rb-timeseries__helper";
-      automatic2.textContent = "Auto-detect is enabled";
-      selected.append(automatic2);
+      const automatic = document.createElement("span");
+      automatic.className = "rb-timeseries__helper";
+      automatic.textContent = "Auto-detect is enabled";
+      selected.append(automatic);
     } else {
       draftFieldPaths.forEach((path) => {
         const chip = document.createElement("span");
@@ -364,10 +355,6 @@ var createPanelInstance = (context) => {
     placeholder.value = "";
     placeholder.textContent = "Add a numeric field\u2026";
     picker.append(placeholder);
-    const automatic = document.createElement("option");
-    automatic.value = AUTO_FIELDS_VALUE;
-    automatic.textContent = "Auto-detect from the next message";
-    picker.append(automatic);
     discoveredFields.filter((path) => !draftFieldPaths.includes(path)).sort((left, right) => left.localeCompare(right)).forEach((path) => {
       const option = document.createElement("option");
       option.value = path;
@@ -375,7 +362,7 @@ var createPanelInstance = (context) => {
       picker.append(option);
     });
     picker.value = "";
-    helper.textContent = discoveredFields.length ? `${discoveredFields.length} numeric field${discoveredFields.length === 1 ? "" : "s"} available from the latest message.` : "Apply with auto-detect to find numeric data in the first message.";
+    helper.textContent = discoveredFields.length ? `${discoveredFields.length} numeric field${discoveredFields.length === 1 ? "" : "s"} available from the latest message.` : config.topic ? "Waiting for a live message to detect numeric fields\u2026" : "Numeric fields are detected automatically after you choose a topic.";
   };
   const addDraftField = (path) => {
     const normalized = parseFieldPaths(path, 1)[0];
@@ -545,7 +532,11 @@ var createPanelInstance = (context) => {
   const onMessage = (message) => {
     if (!active || paused) return;
     if (discoveredTopic !== config.topic || discoveredFields.length === 0) {
-      discoveredFields = discoverNumericFields(message, { maxFields: 8 });
+      discoveredFields = discoverNumericFields(message, {
+        maxDepth: 8,
+        maxArrayItems: DISCOVERED_FIELD_LIMIT,
+        maxFields: DISCOVERED_FIELD_LIMIT
+      });
       discoveredTopic = config.topic;
       renderFieldControls();
     }
@@ -554,8 +545,12 @@ var createPanelInstance = (context) => {
         setStatus("No numeric fields detected", "warn");
         return;
       }
-      config = { ...config, fieldPaths: discoveredFields };
-      draftFieldPaths = [...discoveredFields];
+      const autoPlotFields = chooseAutoPlotFields(
+        discoveredFields,
+        AUTO_PLOT_FIELD_LIMIT
+      );
+      config = { ...config, fieldPaths: autoPlotFields };
+      draftFieldPaths = [...autoPlotFields];
       awaitingFieldDetection = false;
       persistConfig();
       renderFieldControls();
@@ -633,8 +628,7 @@ var createPanelInstance = (context) => {
   const populateConfigInputs = () => {
     if (!root) return;
     draftFieldPaths = [...config.fieldPaths];
-    populateTopicSelect(config.topic);
-    query('[data-field="messageType"]').value = config.messageType;
+    renderSelectedTopic();
     renderFieldControls();
     query('[data-field="timeWindowSec"]').value = String(
       config.timeWindowSec
@@ -652,14 +646,11 @@ var createPanelInstance = (context) => {
     query('[data-field="minY"]').disabled = config.autoScale;
     query('[data-field="maxY"]').disabled = config.autoScale;
   };
-  const readConfigInputs = () => {
-    const selectedTopic = query(
-      '[data-field="topic"]'
-    ).value;
+  const readConfigInputs = (overrides = {}) => {
     return sanitizeConfig({
-      topic: selectedTopic,
-      messageType: query('[data-field="messageType"]').value,
-      fieldPaths: parseFieldPaths(
+      topic: overrides.topic ?? config.topic,
+      messageType: overrides.messageType ?? config.messageType,
+      fieldPaths: overrides.fieldPaths ?? parseFieldPaths(
         query('[data-field="fieldPaths"]').value
       ),
       timeWindowSec: query('[data-field="timeWindowSec"]').valueAsNumber,
@@ -686,23 +677,27 @@ var createPanelInstance = (context) => {
     setStatus("Waiting for topic approval\u2026");
     try {
       const selected = await topicSelectingRos.selectTopic({
-        currentTopic: query('[data-field="topic"]').value || config.topic
+        currentTopic: config.topic
       });
       if (!root) return;
-      const previousTopic = query(
-        '[data-field="topic"]'
-      ).value;
-      topicTypes.clear();
-      topicTypes.set(selected.name, selected.messageType);
-      populateTopicSelect(selected.name);
-      query('[data-field="messageType"]').value = selected.messageType;
-      if (selected.name !== previousTopic) {
+      const topicChanged = selected.name !== config.topic;
+      if (topicChanged) {
         draftFieldPaths = [];
         discoveredFields = [];
         discoveredTopic = "";
-        renderFieldControls();
       }
-      setStatus(`Approved \xB7 ${selected.name}`, "live");
+      config = readConfigInputs({
+        topic: selected.name,
+        messageType: selected.messageType,
+        fieldPaths: draftFieldPaths
+      });
+      persistConfig();
+      paused = false;
+      query('[data-action="pause"]').textContent = "Pause";
+      renderSelectedTopic();
+      renderFieldControls();
+      setSettingsOpen(false);
+      configureSubscription();
     } catch (error) {
       if (!root) return;
       context.logger.info("ROS topic selection was not completed.", error);
@@ -796,31 +791,11 @@ var createPanelInstance = (context) => {
           query('[data-field="maxY"]').disabled = autoScale;
         }
       );
-      query('[data-field="topic"]').addEventListener(
-        "change",
-        (event) => {
-          const selectedTopic = event.currentTarget.value;
-          const detectedType = topicTypes.get(selectedTopic);
-          if (detectedType)
-            query('[data-field="messageType"]').value = detectedType;
-          if (selectedTopic !== config.topic) {
-            draftFieldPaths = [];
-            discoveredFields = [];
-            discoveredTopic = "";
-            renderFieldControls();
-          }
-        }
-      );
       query('[data-field="fieldPicker"]').addEventListener(
         "change",
         (event) => {
           const value = event.currentTarget.value;
-          if (value === AUTO_FIELDS_VALUE) {
-            draftFieldPaths = [];
-            renderFieldControls();
-          } else if (value) {
-            addDraftField(value);
-          }
+          if (value) addDraftField(value);
         }
       );
       viewportUnsubscribe = context.viewport.subscribe(() => scheduleRender());
