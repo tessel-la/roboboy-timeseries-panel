@@ -83,6 +83,33 @@ export const discoverNumericFields = (
   return fields;
 };
 
+export const chooseAutoPlotFields = (
+  fields: readonly string[],
+  limit = 8,
+): string[] => {
+  const telemetryFields = fields.filter((path) => !isRosTimestampField(path));
+  return (telemetryFields.length ? telemetryFields : fields).slice(
+    0,
+    Math.max(0, limit),
+  );
+};
+
+export const isRosTimestampField = (path: string): boolean =>
+  /(^|\.)stamp\.(sec|nanosec)$/.test(path);
+
+export const migrateLegacyAutoPlotFields = (
+  configuredFields: readonly string[],
+  discoveredFields: readonly string[],
+  limit = 8,
+): string[] => {
+  const retained = configuredFields.filter(
+    (path) => !isRosTimestampField(path),
+  );
+  return [
+    ...new Set([...retained, ...chooseAutoPlotFields(discoveredFields, limit)]),
+  ].slice(0, Math.max(0, limit));
+};
+
 export const trimSamples = (
   samples: readonly TimeseriesSample[],
   latestTime: number,

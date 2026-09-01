@@ -3,14 +3,19 @@
   "id": "la.tessel.roboboy.timeseries",
   "name": "ROS Time Series",
   "description": "Plots configurable numeric fields from a ROS topic with pause, scaling, retention, and CSV controls.",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-JmdPewFLBjrn7xnob1Orbsr5G488LsbNm/ef6mk45vI=",
+  "integrity": "sha256-iAiRQl0ng2Tk2ikcQeOHSFHWFDaL/ui2gUEyT83LYL0=",
   "compatibility": {
-    "panelApi": "^1.0.0",
+    "panelApi": "^2.0.0",
     "roboboy": ">=0.3.0-0 <1.0.0"
   },
   "capabilities": ["ros", "storage"],
+  "permissions": {
+    "ros": {
+      "selectTopic": true
+    }
+  },
   "author": {
     "name": "Tessella"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@tessel-la/roboboy-timeseries-panel",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Configurable ROS time-series plotting panel for Robo-Boy",
   "type": "module",
   "license": "MIT",
@@ -18,12 +18,8 @@
     "validate:artifact": "node scripts/validate-artifact.mjs",
     "validate": "npm run typecheck && npm test && npm run build && npm run validate:artifact"
   },
-  "dependencies": {
-    "roslib": "^1.4.1"
-  },
   "devDependencies": {
-    "@tessel-la/roboboy-panel-sdk": "https://github.com/tessel-la/robo-boy/releases/download/panel-sdk-v1.0.0/tessel-la-roboboy-panel-sdk-1.0.0.tgz",
-    "@types/roslib": "^1.3.5",
+    "@tessel-la/roboboy-panel-sdk": "https://github.com/tessel-la/robo-boy/releases/download/panel-sdk-v2.0.0/tessel-la-roboboy-panel-sdk-2.0.0.tgz",
     "esbuild": "^0.25.12",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3"
