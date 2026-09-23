@@ -29,10 +29,18 @@ connection.
    eight useful numeric fields automatically, preserving the version-2 single-topic workflow.
 3. Repeat **Add ROS topic…** to combine telemetry from other topics. Use **Add detected field…** or the custom
    field row to add more fields from a configured topic.
-4. Expand a series row to set its label, unit, and smoothing. The moving-average value is a sample count; the
-   exponential-average value is alpha, where a smaller alpha is smoother.
-5. Use the checkbox or click the compact legend item to hide a series without deleting its settings. Use **×** in
+4. Choose **Smoothing** directly on each series card: **Raw · no filter**, **Moving average**, or **Exponential
+   moving average**. Moving average exposes a sample-count **Window**; EMA exposes a **Factor** (alpha), where a
+   smaller value is smoother. Filter changes save immediately and reset only that series' history.
+5. Expand **Label, unit and source** only when you need those less-frequent details. Long topic, type, field, and
+   label text is contained within the card; the expanded source wraps so its full value remains readable.
+6. Use the checkbox or click the compact legend item to hide a series without deleting its settings. Use **×** in
    Configure to remove it permanently.
+
+On narrow panels, Configure becomes a full-panel settings surface with fixed header and action areas. Only its
+content scrolls, controls become touch-sized, and add/edit rows collapse to one column without horizontal
+scrolling. Close it with **×** to return to the plot, or use **Apply & close** after changing plot/performance
+settings.
 
 Changing a series filter resets only that series' buffered history so raw and differently filtered values are not
 joined by a misleading line. **Pause** freezes plotted history but continues receiving ROS messages and updating

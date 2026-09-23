@@ -3,9 +3,9 @@
   "id": "la.tessel.roboboy.timeseries",
   "name": "ROS Time Series",
   "description": "Plots multiple ROS telemetry series with real-time smoothing, bounded history, and compact controls.",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-X/GzKO86ogV9+pSktdslhYqqekj4A9DI/5eWgt/Ioyc=",
+  "integrity": "sha256-DehtjHARPf1bs8cL50RntLIT7Aw5Vz5B13cIlKMEBmM=",
   "compatibility": {
     "panelApi": "^2.0.0",
     "roboboy": ">=0.3.0-0 <1.0.0"

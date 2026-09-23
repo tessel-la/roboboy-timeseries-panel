@@ -422,37 +422,57 @@ var PANEL_MARKUP = `
     .rb-timeseries__dot { width: 8px; height: 8px; border-radius: 50%; background: #7b8795; box-shadow: 0 0 0 3px #7b879522; }
     .rb-timeseries__dot[data-tone="live"] { background: var(--success-color, #57d68d); box-shadow: 0 0 0 3px #57d68d22; }
     .rb-timeseries__dot[data-tone="warn"] { background: var(--warning-color, #ffb454); box-shadow: 0 0 0 3px #ffb45422; }
-    .rb-timeseries__settings { position: absolute; z-index: 10; top: 50px; right: 7px; bottom: 7px; width: min(760px, calc(100% - 14px)); display: flex; flex-direction: column; gap: 10px; padding: 11px; border: 1px solid var(--border-color, #343d49); border-radius: 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; box-shadow: 0 12px 32px #0008; background: var(--card-bg, #242b36); }
+    .rb-timeseries__settings { position: absolute; z-index: 10; inset: 7px 7px 7px auto; width: min(680px, calc(100% - 14px)); min-width: 0; max-width: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--border-color, #343d49); border-radius: 12px; overflow: hidden; box-shadow: 0 12px 32px #0008; background: var(--card-bg, #242b36); }
     .rb-timeseries__settings[hidden] { display: none; }
-    .rb-timeseries__settings-header, .rb-timeseries__settings-actions, .rb-timeseries__add-row { display: flex; align-items: center; gap: 7px; }
-    .rb-timeseries__settings-header { justify-content: space-between; }
-    .rb-timeseries__settings-header h3 { margin: 0; font-size: 15px; }
-    .rb-timeseries__settings-header button { padding: 4px 8px; }
+    .rb-timeseries__settings > *, .rb-timeseries__settings-content > *, .rb-timeseries__section > * { min-width: 0; max-width: 100%; }
+    .rb-timeseries__settings-header, .rb-timeseries__settings-actions, .rb-timeseries__add-row { display: flex; align-items: center; gap: 8px; }
+    .rb-timeseries__settings-header { justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border-color, #343d49); background: var(--card-bg, #242b36); }
+    .rb-timeseries__settings-heading { min-width: 0; }
+    .rb-timeseries__kicker { display: block; margin-bottom: 1px; color: var(--primary-color, #5ca9ff); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .rb-timeseries__settings-header h3 { margin: 0; font-size: 16px; line-height: 1.25; }
+    .rb-timeseries__settings-header p { margin: 2px 0 0; color: var(--text-secondary, #aeb8c4); font-size: 11px; }
+    .rb-timeseries__icon-button { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; padding: 0 !important; font-size: 20px !important; line-height: 1; }
+    .rb-timeseries__settings-content { min-height: 0; display: grid; align-content: start; gap: 10px; padding: 10px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+    .rb-timeseries__section { min-width: 0; max-width: 100%; display: grid; gap: 9px; padding: 10px; border: 1px solid var(--border-color, #343d49); border-radius: 10px; background: color-mix(in srgb, var(--background-color, #11161d) 35%, transparent); }
+    .rb-timeseries__section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .rb-timeseries__section-title h4 { margin: 0; font-size: 13px; }
     .rb-timeseries label { display: grid; gap: 4px; color: var(--text-secondary, #aeb8c4); min-width: 0; }
-    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 7px; padding: 7px 8px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
+    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; max-width: 100%; border: 1px solid var(--border-color, #414b59); border-radius: 7px; padding: 7px 8px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
     .rb-timeseries input[type="checkbox"] { width: auto; }
-    .rb-timeseries__add-row { flex-wrap: wrap; }
+    .rb-timeseries__add-row { min-width: 0; max-width: 100%; flex-wrap: wrap; }
     .rb-timeseries__add-row select { flex: 1 1 220px; }
-    .rb-timeseries__series-list { display: grid; gap: 6px; }
-    .rb-timeseries__series-editor { border: 1px solid var(--border-color, #343d49); border-radius: 8px; background: #ffffff05; }
-    .rb-timeseries__series-editor summary { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 8px; cursor: pointer; list-style: none; }
-    .rb-timeseries__series-editor summary::-webkit-details-marker { display: none; }
-    .rb-timeseries__series-editor summary::before { content: "\u203A"; color: var(--text-secondary, #aeb8c4); transition: transform .12s; }
-    .rb-timeseries__series-editor[open] summary::before { transform: rotate(90deg); }
+    .rb-timeseries__series-list { min-width: 0; max-width: 100%; display: grid; gap: 8px; }
+    .rb-timeseries__series-card { min-width: 0; max-width: 100%; display: grid; gap: 8px; padding: 9px; border: 1px solid var(--border-color, #343d49); border-radius: 9px; border-left: 3px solid var(--series-color, var(--primary-color, #5ca9ff)); background: #ffffff05; overflow: hidden; }
+    .rb-timeseries__series-header { min-width: 0; max-width: 100%; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+    .rb-timeseries__series-toggle { width: 34px; height: 34px; display: grid !important; place-items: center; cursor: pointer; }
+    .rb-timeseries__series-toggle input { width: 18px; height: 18px; margin: 0; }
     .rb-timeseries__swatch { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 2px; }
-    .rb-timeseries__series-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rb-timeseries__series-editor summary button { border: 0; padding: 1px 4px; color: var(--text-secondary, #aeb8c4); background: transparent; font-size: 17px; line-height: 1; }
+    .rb-timeseries__series-identity { min-width: 0; max-width: 100%; display: grid; gap: 1px; }
+    .rb-timeseries__series-name, .rb-timeseries__series-source { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rb-timeseries__series-name { color: var(--text-color, #eef3f8); font-weight: 600; }
+    .rb-timeseries__series-source { color: var(--text-secondary, #8f9aa8); font-size: 11px; }
+    .rb-timeseries__remove { width: 34px; height: 34px; display: grid; place-items: center; border-color: transparent !important; padding: 0 !important; color: var(--text-secondary, #aeb8c4) !important; background: transparent !important; font-size: 18px !important; line-height: 1; }
     .rb-timeseries__series-fields, .rb-timeseries__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .rb-timeseries__series-fields { padding: 2px 9px 9px 30px; }
+    .rb-timeseries__series-fields { padding: 8px 0 0; }
     .rb-timeseries__series-fields .wide { grid-column: 1 / -1; }
-    .rb-timeseries__filter-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 6px; }
-    .rb-timeseries__helper { margin: 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; }
+    .rb-timeseries__filter-control { min-width: 0; max-width: 100%; display: grid; gap: 5px; padding-top: 1px; }
+    .rb-timeseries__control-label { color: var(--text-secondary, #aeb8c4); font-size: 12px; }
+    .rb-timeseries__filter-row { min-width: 0; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(82px, 110px); gap: 7px; align-items: end; }
+    .rb-timeseries__filter-row[data-raw] { grid-template-columns: minmax(0, 1fr); }
+    .rb-timeseries__filter-parameter { min-width: 0; display: grid; gap: 4px; }
+    .rb-timeseries__filter-parameter span { color: var(--text-secondary, #aeb8c4); font-size: 11px; }
+    .rb-timeseries__helper { min-width: 0; max-width: 100%; margin: 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; overflow-wrap: anywhere; word-break: break-word; }
+    .rb-timeseries__series-details { min-width: 0; max-width: 100%; border-top: 1px solid var(--border-color, #343d49); }
+    .rb-timeseries__series-details-toggle { width: 100%; display: flex; align-items: center; gap: 6px; border: 0 !important; padding: 8px 0 0 !important; color: var(--text-secondary, #aeb8c4) !important; background: transparent !important; font-size: 12px !important; font-weight: 600 !important; text-align: left; }
+    .rb-timeseries__series-details-toggle::before { content: "\u203A"; transition: transform .12s; }
+    .rb-timeseries__series-details-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+    .rb-timeseries__series-fields[hidden] { display: none; }
     .rb-timeseries__custom-row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(140px, 1fr) auto; gap: 6px; }
-    .rb-timeseries__advanced { border: 1px solid var(--border-color, #343d49); border-radius: 8px; }
-    .rb-timeseries__advanced summary { padding: 8px 9px; cursor: pointer; font-weight: 600; }
-    .rb-timeseries__advanced-grid { padding: 2px 9px 9px; }
+    .rb-timeseries__advanced { padding: 0; }
+    .rb-timeseries__advanced > summary { padding: 10px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .rb-timeseries__advanced-grid { padding: 0 10px 10px; }
     .rb-timeseries__check { display: flex !important; justify-content: start; align-items: center; align-content: end; padding-bottom: 6px; }
-    .rb-timeseries__settings-actions { position: sticky; bottom: -11px; margin-top: auto; padding: 9px 0 1px; background: var(--card-bg, #242b36); }
+    .rb-timeseries__settings-actions { justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-color, #343d49); background: var(--card-bg, #242b36); }
     .rb-timeseries__settings-actions button[data-action="apply-settings"] { border-color: var(--primary-color, #5ca9ff); background: var(--primary-color, #347fc4); }
     .rb-timeseries__chart { min-height: 100px; position: relative; border: 1px solid var(--border-color, #343d49); border-radius: 8px; overflow: hidden; background: var(--background-color, #10151c); }
     .rb-timeseries canvas { display: block; width: 100%; height: 100%; }
@@ -467,16 +487,21 @@ var PANEL_MARKUP = `
     @media (max-width: 760px) {
       .rb-timeseries { min-height: 150px; padding: 8px; gap: 7px; }
       .rb-timeseries__title { width: 100%; }
-      .rb-timeseries__settings { inset: 43px 6px 6px; width: auto; padding: 9px; -webkit-overflow-scrolling: touch; }
+      .rb-timeseries__settings { inset: 0; width: 100%; max-width: 100%; border: 0; border-radius: 0; box-shadow: none; }
+      .rb-timeseries__settings-content { padding: 8px; -webkit-overflow-scrolling: touch; }
+      .rb-timeseries__settings-header { padding: 9px 10px; }
+      .rb-timeseries__settings-actions { padding: 8px 10px; }
+      .rb-timeseries__settings-actions button { min-height: 42px; width: 100%; }
+      .rb-timeseries__settings button, .rb-timeseries__settings input, .rb-timeseries__settings select { min-height: 42px; }
+      .rb-timeseries__series-toggle { width: 42px; height: 42px; }
+      .rb-timeseries__remove { width: 42px; height: 42px; }
       .rb-timeseries__series-fields, .rb-timeseries__advanced-grid { grid-template-columns: minmax(0, 1fr); }
       .rb-timeseries__series-fields .wide { grid-column: auto; }
-      .rb-timeseries__custom-row { grid-template-columns: minmax(0, 1fr) auto; }
-      .rb-timeseries__custom-row select { grid-column: 1 / -1; }
+      .rb-timeseries__add-row, .rb-timeseries__custom-row { display: grid; grid-template-columns: minmax(0, 1fr); }
       .rb-timeseries__footer { align-items: flex-start; flex-direction: column; }
       .rb-timeseries__legend { width: 100%; }
     }
     @media (max-height: 420px) {
-      .rb-timeseries__settings { top: 37px; }
       .rb-timeseries__toolbar { gap: 5px; }
       .rb-timeseries__toolbar button { padding: 4px 7px; }
       .rb-timeseries__footer { flex-direction: row; align-items: center; }
@@ -493,44 +518,52 @@ var PANEL_MARKUP = `
       <button type="button" data-action="configure" aria-expanded="false">Configure</button>
     </header>
     <form class="rb-timeseries__settings" data-role="settings" aria-label="Time series configuration" hidden>
-      <div class="rb-timeseries__settings-header">
-        <h3>Series</h3>
-        <button type="button" data-action="close-settings" aria-label="Close configuration">\xD7</button>
-      </div>
-      <div class="rb-timeseries__add-row">
-        <button type="button" data-action="choose-topic">Add ROS topic\u2026</button>
-        <select data-field="fieldPicker" aria-label="Add detected numeric field"><option value="">Add detected field\u2026</option></select>
-      </div>
-      <div class="rb-timeseries__series-list" data-role="series-list"></div>
-      <p class="rb-timeseries__helper" data-role="series-help">Choose a topic. Numeric fields are detected from its first live message.</p>
-      <div class="rb-timeseries__custom-row">
-        <select data-field="customSource" aria-label="Custom field topic"><option value="">Topic\u2026</option></select>
-        <input data-field="customField" aria-label="Custom numeric field" placeholder="pose.position.x" autocomplete="off" />
-        <button type="button" data-action="add-custom-field">Add field</button>
-      </div>
-      <details class="rb-timeseries__advanced">
-        <summary>Plot settings</summary>
-        <div class="rb-timeseries__advanced-grid">
-          <label>Window (seconds)<input data-field="timeWindowSec" type="number" min="1" max="600" step="1" /></label>
-          <label>Samples per series<input data-field="sampleLimit" type="number" min="100" max="10000" step="100" /></label>
-          <label>Bridge throttle
-            <select data-field="throttleMs">
-              <option value="0">Every message</option><option value="16">60 Hz</option><option value="33">30 Hz</option>
-              <option value="50">20 Hz</option><option value="100">10 Hz</option><option value="250">4 Hz</option><option value="500">2 Hz</option>
-            </select>
-          </label>
-          <label>Graph refresh
-            <select data-field="renderFps"><option value="5">5 Hz</option><option value="10">10 Hz</option><option value="20">20 Hz</option><option value="30">30 Hz</option><option value="60">60 Hz</option></select>
-          </label>
-          <label class="rb-timeseries__check"><input data-field="autoScale" type="checkbox" />Auto Y range</label>
-          <label class="rb-timeseries__check"><input data-field="showPoints" type="checkbox" />Point markers</label>
-          <label>Y minimum<input data-field="minY" type="number" step="any" /></label>
-          <label>Y maximum<input data-field="maxY" type="number" step="any" /></label>
+      <header class="rb-timeseries__settings-header">
+        <div class="rb-timeseries__settings-heading">
+          <span class="rb-timeseries__kicker">Time Series</span>
+          <h3>Chart settings</h3>
+          <p>Series changes save immediately.</p>
         </div>
-      </details>
+        <button class="rb-timeseries__icon-button" type="button" data-action="close-settings" aria-label="Close chart settings">\xD7</button>
+      </header>
+      <div class="rb-timeseries__settings-content">
+        <section class="rb-timeseries__section" aria-labelledby="rb-timeseries-series-title">
+          <div class="rb-timeseries__section-title"><h4 id="rb-timeseries-series-title">Data series</h4></div>
+          <div class="rb-timeseries__add-row">
+            <button type="button" data-action="choose-topic">Add ROS topic\u2026</button>
+            <select data-field="fieldPicker" aria-label="Add detected numeric field"><option value="">Add detected field\u2026</option></select>
+          </div>
+          <div class="rb-timeseries__series-list" data-role="series-list"></div>
+          <p class="rb-timeseries__helper" data-role="series-help">Choose a topic. Numeric fields are detected from its first live message.</p>
+          <div class="rb-timeseries__custom-row">
+            <select data-field="customSource" aria-label="Custom field topic"><option value="">Topic\u2026</option></select>
+            <input data-field="customField" aria-label="Custom numeric field" placeholder="pose.position.x" autocomplete="off" />
+            <button type="button" data-action="add-custom-field">Add field</button>
+          </div>
+        </section>
+        <details class="rb-timeseries__advanced rb-timeseries__section">
+          <summary>Plot and performance</summary>
+          <div class="rb-timeseries__advanced-grid">
+            <label>Window (seconds)<input data-field="timeWindowSec" type="number" min="1" max="600" step="1" /></label>
+            <label>Samples per series<input data-field="sampleLimit" type="number" min="100" max="10000" step="100" /></label>
+            <label>Bridge throttle
+              <select data-field="throttleMs">
+                <option value="0">Every message</option><option value="16">60 Hz</option><option value="33">30 Hz</option>
+                <option value="50">20 Hz</option><option value="100">10 Hz</option><option value="250">4 Hz</option><option value="500">2 Hz</option>
+              </select>
+            </label>
+            <label>Graph refresh
+              <select data-field="renderFps"><option value="5">5 Hz</option><option value="10">10 Hz</option><option value="20">20 Hz</option><option value="30">30 Hz</option><option value="60">60 Hz</option></select>
+            </label>
+            <label class="rb-timeseries__check"><input data-field="autoScale" type="checkbox" />Auto Y range</label>
+            <label class="rb-timeseries__check"><input data-field="showPoints" type="checkbox" />Point markers</label>
+            <label>Y minimum<input data-field="minY" type="number" step="any" /></label>
+            <label>Y maximum<input data-field="maxY" type="number" step="any" /></label>
+          </div>
+        </details>
+      </div>
       <div class="rb-timeseries__settings-actions">
-        <button type="button" data-action="apply-settings">Apply plot settings</button>
-        <button type="button" data-action="close-settings">Done</button>
+        <button type="button" data-action="apply-settings">Apply &amp; close</button>
       </div>
     </form>
     <div class="rb-timeseries__chart" data-role="chart"><canvas aria-label="ROS numeric time-series chart"></canvas><div class="rb-timeseries__empty" data-role="empty">Add a ROS topic to begin.</div></div>
@@ -561,6 +594,7 @@ var createPanelInstance = (context) => {
   const buffers = /* @__PURE__ */ new Map();
   const filters = /* @__PURE__ */ new Map();
   const discoveredFields = /* @__PURE__ */ new Map();
+  const expandedSeries = /* @__PURE__ */ new Set();
   const query = (selector) => {
     const element = root?.querySelector(selector);
     if (!element) throw new Error(`ROS Time Series is missing ${selector}.`);
@@ -697,6 +731,7 @@ var createPanelInstance = (context) => {
     config = { ...config, series: config.series.filter((series) => series.id !== id) };
     buffers.delete(id);
     filters.delete(id);
+    expandedSeries.delete(id);
     persistConfig();
     renderSeriesControls();
     reconcileSubscriptions();
@@ -705,52 +740,76 @@ var createPanelInstance = (context) => {
   const renderSeriesControls = () => {
     if (!root) return;
     const list = query('[data-role="series-list"]');
-    const openSeries = new Set(
-      Array.from(list.querySelectorAll("details[open]")).map((details) => details.dataset.seriesId).filter((id) => Boolean(id))
-    );
     list.replaceChildren();
     config.series.forEach((series) => {
-      const details = document.createElement("details");
-      details.className = "rb-timeseries__series-editor";
-      details.dataset.seriesId = series.id;
-      details.open = openSeries.has(series.id);
-      const summary = document.createElement("summary");
+      const card = document.createElement("article");
+      card.className = "rb-timeseries__series-card";
+      card.dataset.seriesId = series.id;
+      card.style.setProperty("--series-color", series.color);
+      const header = document.createElement("div");
+      header.className = "rb-timeseries__series-header";
+      const toggle = document.createElement("label");
+      toggle.className = "rb-timeseries__series-toggle";
       const enabled = document.createElement("input");
       enabled.type = "checkbox";
       enabled.checked = series.enabled;
       enabled.dataset.seriesToggle = series.id;
       enabled.setAttribute("aria-label", `Show ${displayName(series)}`);
-      enabled.addEventListener("click", (event) => event.stopPropagation());
+      toggle.append(enabled);
       const swatch = document.createElement("i");
       swatch.className = "rb-timeseries__swatch";
       swatch.style.backgroundColor = series.color;
+      const identity = document.createElement("div");
+      identity.className = "rb-timeseries__series-identity";
+      const fullSource = `${series.topic} \xB7 ${series.messageType}${series.fieldPath ? ` \xB7 ${series.fieldPath}` : ""}`;
       const name = document.createElement("span");
       name.className = "rb-timeseries__series-name";
       name.textContent = `${displayName(series)}${series.unit ? ` (${series.unit})` : ""}`;
-      name.title = `${series.topic} \xB7 ${series.messageType}${series.fieldPath ? ` \xB7 ${series.fieldPath}` : ""}`;
+      name.title = fullSource;
+      const sourceName = document.createElement("span");
+      sourceName.className = "rb-timeseries__series-source";
+      sourceName.textContent = series.fieldPath ? `${series.topic} \xB7 ${series.fieldPath}` : `${series.topic} \xB7 detecting numeric fields\u2026`;
+      sourceName.title = fullSource;
+      identity.append(name, sourceName);
       const remove = document.createElement("button");
       remove.type = "button";
+      remove.className = "rb-timeseries__remove";
       remove.dataset.action = "remove-series";
       remove.dataset.seriesId = series.id;
       remove.setAttribute("aria-label", `Remove ${displayName(series)}`);
       remove.textContent = "\xD7";
-      summary.append(enabled, swatch, name, remove);
-      details.append(summary);
+      header.append(toggle, swatch, identity, remove);
+      card.append(header);
       if (series.fieldPath) {
+        card.append(createFilterControl(series));
+        const details = document.createElement("div");
+        details.className = "rb-timeseries__series-details";
+        const detailsId = `rb-timeseries-series-fields-${series.id}`;
+        const detailsToggle = document.createElement("button");
+        detailsToggle.type = "button";
+        detailsToggle.className = "rb-timeseries__series-details-toggle";
+        detailsToggle.dataset.action = "toggle-series-details";
+        detailsToggle.dataset.seriesId = series.id;
+        detailsToggle.setAttribute("aria-controls", detailsId);
+        detailsToggle.setAttribute("aria-expanded", String(expandedSeries.has(series.id)));
+        detailsToggle.textContent = "Label, unit and source";
         const fields = document.createElement("div");
         fields.className = "rb-timeseries__series-fields";
+        fields.id = detailsId;
+        fields.hidden = !expandedSeries.has(series.id);
         fields.append(
           createTextInput("Label", series.label, "seriesLabel", series.id, "Optional short name"),
-          createTextInput("Unit", series.unit, "seriesUnit", series.id, "m/s, \xB0C, rad\u2026"),
-          createFilterControl(series)
+          createTextInput("Unit", series.unit, "seriesUnit", series.id, "m/s, \xB0C, rad\u2026")
         );
         const source = document.createElement("p");
         source.className = "rb-timeseries__helper wide";
-        source.textContent = `${series.topic} \xB7 ${series.fieldPath} \xB7 ${series.messageType}`;
+        source.textContent = fullSource;
+        source.title = fullSource;
         fields.append(source);
-        details.append(fields);
+        details.append(detailsToggle, fields);
+        card.append(details);
       }
-      list.append(details);
+      list.append(card);
     });
     const picker = query('[data-field="fieldPicker"]');
     picker.replaceChildren(new Option("Add detected field\u2026", ""));
@@ -787,25 +846,33 @@ var createPanelInstance = (context) => {
     return label;
   };
   const createFilterControl = (series) => {
-    const label = document.createElement("label");
-    label.className = "wide";
-    label.append(document.createTextNode("Smoothing"));
-    const row = document.createElement("span");
+    const control = document.createElement("div");
+    control.className = "rb-timeseries__filter-control";
+    const heading = document.createElement("span");
+    heading.className = "rb-timeseries__control-label";
+    heading.textContent = "Smoothing";
+    const row = document.createElement("div");
     row.className = "rb-timeseries__filter-row";
+    row.toggleAttribute("data-raw", series.filter.type === "raw");
     const select = document.createElement("select");
     select.dataset.seriesFilter = series.id;
+    select.setAttribute("aria-label", `Smoothing for ${displayName(series)}`);
     select.append(
-      new Option("Raw signal", "raw"),
+      new Option("Raw \xB7 no filter", "raw"),
       new Option("Moving average", "movingAverage"),
-      new Option("Exponential average", "ema")
+      new Option("Exponential moving average", "ema")
     );
     select.value = series.filter.type;
     row.append(select);
     if (series.filter.type !== "raw") {
+      const parameterLabel = document.createElement("label");
+      parameterLabel.className = "rb-timeseries__filter-parameter";
+      const parameterName = document.createElement("span");
       const parameter = document.createElement("input");
       parameter.type = "number";
       parameter.dataset.seriesFilterParameter = series.id;
       if (series.filter.type === "movingAverage") {
+        parameterName.textContent = "Window";
         parameter.value = String(series.filter.window);
         parameter.min = "2";
         parameter.max = "500";
@@ -813,6 +880,7 @@ var createPanelInstance = (context) => {
         parameter.title = "Sample window";
         parameter.setAttribute("aria-label", "Moving average sample window");
       } else {
+        parameterName.textContent = "Factor";
         parameter.value = String(series.filter.alpha);
         parameter.min = "0.01";
         parameter.max = "1";
@@ -820,10 +888,11 @@ var createPanelInstance = (context) => {
         parameter.title = "EMA alpha";
         parameter.setAttribute("aria-label", "Exponential average alpha");
       }
-      row.append(parameter);
+      parameterLabel.append(parameterName, parameter);
+      row.append(parameterLabel);
     }
-    label.append(row);
-    return label;
+    control.append(heading, row);
+    return control;
   };
   const populatePlotInputs = () => {
     query('[data-field="timeWindowSec"]').value = String(config.timeWindowSec);
@@ -1106,8 +1175,8 @@ var createPanelInstance = (context) => {
     reconcileSubscriptions(previousThrottle !== config.throttleMs);
     scheduleRender(true);
   };
-  const setSeriesFilter = (id, filter) => {
-    updateSeries(id, (series) => ({ ...series, filter }), { reset: true });
+  const setSeriesFilter = (id, filter, renderControls = true) => {
+    updateSeries(id, (series) => ({ ...series, filter }), { reset: true, renderControls });
   };
   return {
     mount(container) {
@@ -1146,6 +1215,13 @@ var createPanelInstance = (context) => {
           event.preventDefault();
           event.stopPropagation();
           if (actionElement?.dataset.seriesId) removeSeries(actionElement.dataset.seriesId);
+        } else if (action === "toggle-series-details") {
+          const id = actionElement?.dataset.seriesId;
+          if (id) {
+            if (expandedSeries.has(id)) expandedSeries.delete(id);
+            else expandedSeries.add(id);
+            renderSeriesControls();
+          }
         } else if (action === "toggle-series") {
           const id = actionElement?.dataset.seriesId;
           const series = config.series.find((item) => item.id === id);
@@ -1197,9 +1273,9 @@ var createPanelInstance = (context) => {
         if (parameterId && target instanceof HTMLInputElement) {
           const series = config.series.find((item) => item.id === parameterId);
           if (series?.filter.type === "movingAverage") {
-            setSeriesFilter(parameterId, { type: "movingAverage", window: Math.min(500, Math.max(2, Math.round(target.valueAsNumber || 10))) });
+            setSeriesFilter(parameterId, { type: "movingAverage", window: Math.min(500, Math.max(2, Math.round(target.valueAsNumber || 10))) }, false);
           } else if (series?.filter.type === "ema") {
-            setSeriesFilter(parameterId, { type: "ema", alpha: Math.min(1, Math.max(0.01, target.valueAsNumber || 0.2)) });
+            setSeriesFilter(parameterId, { type: "ema", alpha: Math.min(1, Math.max(0.01, target.valueAsNumber || 0.2)) }, false);
           }
           return;
         }
@@ -1264,6 +1340,7 @@ var createPanelInstance = (context) => {
       buffers.clear();
       filters.clear();
       discoveredFields.clear();
+      expandedSeries.clear();
     }
   };
 };
