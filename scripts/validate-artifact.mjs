@@ -39,7 +39,41 @@ if (typeof module.default.activate !== "function") {
   throw new Error("The built module must export an activate function.");
 }
 
-const instance = await module.default.activate({ storage: null, ros: null });
+const noChange = () => () => undefined;
+const instance = await module.default.activate({
+  panelId: manifest.id,
+  instanceId: "artifact-validation",
+  capabilities: [],
+  storage: null,
+  ros: null,
+  network: null,
+  runtime: { target: "web" },
+  connection: {
+    getSnapshot: () => ({ status: "disconnected", generation: 0 }),
+    subscribe: noChange,
+  },
+  viewport: {
+    getSnapshot: () => ({
+      width: 640,
+      height: 360,
+      isIntersecting: true,
+      isDocumentVisible: true,
+      isActive: true,
+    }),
+    subscribe: noChange,
+    requestFullscreen: async () => undefined,
+  },
+  theme: {
+    getSnapshot: () => ({ colorScheme: "dark", tokens: {} }),
+    subscribe: noChange,
+  },
+  logger: {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+  },
+});
 if (
   typeof instance?.mount !== "function" ||
   typeof instance?.unmount !== "function"

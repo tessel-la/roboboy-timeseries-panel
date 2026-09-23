@@ -1,189 +1,116 @@
 import type {
   RoboBoyJsonObject,
+  RoboBoyPanelConnectionSnapshot,
   RoboBoyPanelContext,
   RoboBoyPanelDefinition,
   RoboBoyPanelInstance,
-  RoboBoyRosSubscription,
+  RoboBoyRosTopic,
 } from "@tessel-la/roboboy-panel-sdk";
 import {
+  AUTO_PLOT_FIELD_LIMIT,
+  COLORS,
+  DEFAULT_CONFIG,
+  SERIES_LIMIT,
+  createSeriesId,
+  displayName,
+  getDesiredSources,
+  sanitizeConfig,
+  sourceKey,
+  type TimeseriesConfig,
+  type TimeseriesSeriesConfig,
+  type TopicSource,
+} from "./config";
+import {
+  RealtimeFilter,
+  SampleBuffer,
   chooseAutoPlotFields,
   createCsv,
+  decimateSamples,
   discoverNumericFields,
   getNumericValueAtPath,
   getPlotRange,
-  isRosTimestampField,
-  migrateLegacyAutoPlotFields,
-  parseFieldPaths,
-  trimSamples,
+  parseFieldPath,
+  type FilterConfig,
   type TimeseriesSample,
 } from "./data";
-
-interface TimeseriesConfig {
-  schemaVersion: 2;
-  topic: string;
-  messageType: string;
-  fieldPaths: string[];
-  timeWindowSec: number;
-  sampleLimit: number;
-  throttleMs: number;
-  autoScale: boolean;
-  minY: number;
-  maxY: number;
-  showPoints: boolean;
-}
+import { SubscriptionController } from "./subscriptions";
 
 const PANEL_ID = "la.tessel.roboboy.timeseries";
-const COLORS = [
-  "#57d68d",
-  "#5ca9ff",
-  "#ffb454",
-  "#ff7597",
-  "#bd93f9",
-  "#35d0ba",
-  "#f9e264",
-  "#8be9fd",
-];
-const DEFAULT_CONFIG: TimeseriesConfig = {
-  schemaVersion: 2,
-  topic: "",
-  messageType: "",
-  fieldPaths: [],
-  timeWindowSec: 15,
-  sampleLimit: 1200,
-  throttleMs: 33,
-  autoScale: true,
-  minY: -1,
-  maxY: 1,
-  showPoints: false,
-};
-const AUTO_PLOT_FIELD_LIMIT = 8;
 const DISCOVERED_FIELD_LIMIT = 64;
-
-interface UserSelectedTopicRos {
-  selectTopic(options?: {
-    currentTopic?: string;
-  }): Promise<{ name: string; messageType: string }>;
-}
-
-const clamp = (
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number => {
-  const numeric = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(numeric)
-    ? Math.min(max, Math.max(min, numeric))
-    : fallback;
-};
-
-const sanitizeConfig = (value: unknown): TimeseriesConfig => {
-  const candidate =
-    value && typeof value === "object"
-      ? (value as Partial<TimeseriesConfig>)
-      : {};
-  return {
-    schemaVersion: 2,
-    topic:
-      typeof candidate.topic === "string"
-        ? candidate.topic.trim()
-        : DEFAULT_CONFIG.topic,
-    messageType:
-      typeof candidate.messageType === "string"
-        ? candidate.messageType.trim()
-        : DEFAULT_CONFIG.messageType,
-    fieldPaths: Array.isArray(candidate.fieldPaths)
-      ? candidate.fieldPaths
-          .filter(
-            (path): path is string =>
-              typeof path === "string" && Boolean(path.trim()),
-          )
-          .slice(0, 8)
-      : DEFAULT_CONFIG.fieldPaths,
-    timeWindowSec: clamp(
-      candidate.timeWindowSec,
-      DEFAULT_CONFIG.timeWindowSec,
-      1,
-      600,
-    ),
-    sampleLimit: Math.round(
-      clamp(candidate.sampleLimit, DEFAULT_CONFIG.sampleLimit, 100, 10000),
-    ),
-    throttleMs: Math.round(
-      clamp(candidate.throttleMs, DEFAULT_CONFIG.throttleMs, 0, 2000),
-    ),
-    autoScale: candidate.autoScale !== false,
-    minY: clamp(candidate.minY, DEFAULT_CONFIG.minY, -1e12, 1e12),
-    maxY: clamp(candidate.maxY, DEFAULT_CONFIG.maxY, -1e12, 1e12),
-    showPoints: candidate.showPoints === true,
-  };
-};
 
 const PANEL_MARKUP = `
   <style>
-    .rb-timeseries { position: relative; height: 100%; min-height: 180px; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 10px; padding: 12px; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 var(--font-family-ui, system-ui, sans-serif); overflow: hidden; }
+    .rb-timeseries { position: relative; height: 100%; min-height: 180px; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 9px; padding: 11px; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 var(--font-family-ui, system-ui, sans-serif); overflow: hidden; }
     .rb-timeseries[data-inactive] { opacity: .78; }
     .rb-timeseries * { box-sizing: border-box; }
-    .rb-timeseries__toolbar, .rb-timeseries__actions, .rb-timeseries__status, .rb-timeseries__legend { display: flex; align-items: center; gap: 8px; }
+    .rb-timeseries__toolbar, .rb-timeseries__status, .rb-timeseries__legend { display: flex; align-items: center; gap: 7px; }
     .rb-timeseries__toolbar { flex-wrap: wrap; }
     .rb-timeseries__title { margin: 0 auto 0 0; font-size: 15px; }
-    .rb-timeseries button { border: 1px solid var(--border-color, #3d4654); border-radius: 6px; padding: 6px 10px; color: inherit; background: var(--card-bg, #242b36); cursor: pointer; font: inherit; }
+    .rb-timeseries button { border: 1px solid var(--border-color, #3d4654); border-radius: 6px; padding: 6px 9px; color: inherit; background: var(--card-bg, #242b36); cursor: pointer; font: inherit; }
     .rb-timeseries button:hover { border-color: var(--primary-color, #5ca9ff); }
+    .rb-timeseries button:focus-visible, .rb-timeseries input:focus-visible, .rb-timeseries select:focus-visible { outline: 2px solid var(--primary-color, #5ca9ff); outline-offset: 1px; }
     .rb-timeseries button:disabled { opacity: .45; cursor: default; }
     .rb-timeseries__dot { width: 8px; height: 8px; border-radius: 50%; background: #7b8795; box-shadow: 0 0 0 3px #7b879522; }
-    .rb-timeseries__dot[data-tone="live"] { background: #57d68d; box-shadow: 0 0 0 3px #57d68d22; }
-    .rb-timeseries__dot[data-tone="warn"] { background: #ffb454; box-shadow: 0 0 0 3px #ffb45422; }
-    .rb-timeseries__settings { position: absolute; z-index: 10; top: 52px; right: 8px; bottom: 8px; width: min(720px, calc(100% - 16px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 1px solid var(--border-color, #343d49); border-radius: 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; box-shadow: 0 12px 32px #0008; background: var(--card-bg, #242b36); background: color-mix(in srgb, var(--card-bg, #242b36) 96%, transparent); }
+    .rb-timeseries__dot[data-tone="live"] { background: var(--success-color, #57d68d); box-shadow: 0 0 0 3px #57d68d22; }
+    .rb-timeseries__dot[data-tone="warn"] { background: var(--warning-color, #ffb454); box-shadow: 0 0 0 3px #ffb45422; }
+    .rb-timeseries__settings { position: absolute; z-index: 10; top: 50px; right: 7px; bottom: 7px; width: min(760px, calc(100% - 14px)); display: flex; flex-direction: column; gap: 10px; padding: 11px; border: 1px solid var(--border-color, #343d49); border-radius: 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; box-shadow: 0 12px 32px #0008; background: var(--card-bg, #242b36); }
     .rb-timeseries__settings[hidden] { display: none; }
-    .rb-timeseries__settings-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .rb-timeseries__settings-header, .rb-timeseries__settings-actions, .rb-timeseries__add-row { display: flex; align-items: center; gap: 7px; }
+    .rb-timeseries__settings-header { justify-content: space-between; }
     .rb-timeseries__settings-header h3 { margin: 0; font-size: 15px; }
     .rb-timeseries__settings-header button { padding: 4px 8px; }
-    .rb-timeseries__source-grid, .rb-timeseries__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .rb-timeseries label { display: grid; gap: 4px; color: var(--text-secondary, #aeb8c4); min-width: 0; }
-    .rb-timeseries label.wide, .rb-timeseries__fields { grid-column: 1 / -1; }
-    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 7px 9px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
-    .rb-timeseries__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
-    .rb-timeseries__input-row button { white-space: nowrap; }
-    .rb-timeseries__topic-row { min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 6px 7px 6px 9px; background: var(--background-color, #11161d); }
-    .rb-timeseries__topic-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color, #eef3f8); }
-    .rb-timeseries__topic-row button { flex: 0 0 auto; }
-    .rb-timeseries__selected-fields { min-height: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; }
-    .rb-timeseries__field-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-color, #414b59); border-radius: 999px; padding: 3px 7px; color: var(--text-color, #eef3f8); background: #ffffff0a; }
-    .rb-timeseries__field-chip button { border: 0; padding: 0 2px; color: var(--text-secondary, #aeb8c4); background: transparent; font-size: 16px; line-height: 1; }
-    .rb-timeseries__helper { margin: 4px 0 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; }
+    .rb-timeseries input, .rb-timeseries select { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 7px; padding: 7px 8px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
+    .rb-timeseries input[type="checkbox"] { width: auto; }
+    .rb-timeseries__add-row { flex-wrap: wrap; }
+    .rb-timeseries__add-row select { flex: 1 1 220px; }
+    .rb-timeseries__series-list { display: grid; gap: 6px; }
+    .rb-timeseries__series-editor { border: 1px solid var(--border-color, #343d49); border-radius: 8px; background: #ffffff05; }
+    .rb-timeseries__series-editor summary { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 8px; cursor: pointer; list-style: none; }
+    .rb-timeseries__series-editor summary::-webkit-details-marker { display: none; }
+    .rb-timeseries__series-editor summary::before { content: "›"; color: var(--text-secondary, #aeb8c4); transition: transform .12s; }
+    .rb-timeseries__series-editor[open] summary::before { transform: rotate(90deg); }
+    .rb-timeseries__swatch { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 2px; }
+    .rb-timeseries__series-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rb-timeseries__series-editor summary button { border: 0; padding: 1px 4px; color: var(--text-secondary, #aeb8c4); background: transparent; font-size: 17px; line-height: 1; }
+    .rb-timeseries__series-fields, .rb-timeseries__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .rb-timeseries__series-fields { padding: 2px 9px 9px 30px; }
+    .rb-timeseries__series-fields .wide { grid-column: 1 / -1; }
+    .rb-timeseries__filter-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 6px; }
+    .rb-timeseries__helper { margin: 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; }
+    .rb-timeseries__custom-row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(140px, 1fr) auto; gap: 6px; }
     .rb-timeseries__advanced { border: 1px solid var(--border-color, #343d49); border-radius: 8px; }
-    .rb-timeseries__advanced summary { padding: 9px 10px; cursor: pointer; font-weight: 600; }
-    .rb-timeseries__advanced-grid { padding: 2px 10px 10px; }
-    .rb-timeseries__check { display: flex !important; grid-auto-flow: column; justify-content: start; align-content: end; align-items: center; padding-bottom: 6px; }
-    .rb-timeseries__check input { width: auto; }
-    .rb-timeseries__settings-actions { position: sticky; bottom: -12px; display: flex; justify-content: flex-start; gap: 8px; margin-top: auto; padding: 10px 0 2px; background: var(--card-bg, #242b36); }
-    .rb-timeseries__settings-actions button { min-width: 92px; }
-    .rb-timeseries__settings-actions button[type="submit"] { border-color: var(--primary-color, #5ca9ff); background: var(--primary-color, #347fc4); }
+    .rb-timeseries__advanced summary { padding: 8px 9px; cursor: pointer; font-weight: 600; }
+    .rb-timeseries__advanced-grid { padding: 2px 9px 9px; }
+    .rb-timeseries__check { display: flex !important; justify-content: start; align-items: center; align-content: end; padding-bottom: 6px; }
+    .rb-timeseries__settings-actions { position: sticky; bottom: -11px; margin-top: auto; padding: 9px 0 1px; background: var(--card-bg, #242b36); }
+    .rb-timeseries__settings-actions button[data-action="apply-settings"] { border-color: var(--primary-color, #5ca9ff); background: var(--primary-color, #347fc4); }
     .rb-timeseries__chart { min-height: 100px; position: relative; border: 1px solid var(--border-color, #343d49); border-radius: 8px; overflow: hidden; background: var(--background-color, #10151c); }
     .rb-timeseries canvas { display: block; width: 100%; height: 100%; }
-    .rb-timeseries__empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-secondary, #8f9aa8); pointer-events: none; }
+    .rb-timeseries__empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; text-align: center; color: var(--text-secondary, #8f9aa8); pointer-events: none; }
     .rb-timeseries__empty[hidden] { display: none; }
-    .rb-timeseries__footer { min-width: 0; display: flex; align-items: center; gap: 10px; }
+    .rb-timeseries__footer { min-width: 0; display: flex; align-items: center; gap: 9px; }
     .rb-timeseries__legend { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
-    .rb-timeseries__series { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 3px 6px; border-radius: 5px; background: #ffffff0a; }
-    .rb-timeseries__series i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
-    .rb-timeseries__series strong { font-variant-numeric: tabular-nums; }
+    .rb-timeseries__legend button { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 3px 6px; border-color: transparent; background: #ffffff0a; }
+    .rb-timeseries__legend button[aria-pressed="false"] { opacity: .48; text-decoration: line-through; }
+    .rb-timeseries__legend strong { font-variant-numeric: tabular-nums; }
     .rb-timeseries__stats { white-space: nowrap; color: var(--text-secondary, #aeb8c4); font-variant-numeric: tabular-nums; }
     @media (max-width: 760px) {
       .rb-timeseries { min-height: 150px; padding: 8px; gap: 7px; }
       .rb-timeseries__title { width: 100%; }
-      .rb-timeseries__settings { inset: 44px 6px 6px; width: auto; padding: 10px; -webkit-overflow-scrolling: touch; }
-      .rb-timeseries__source-grid, .rb-timeseries__advanced-grid { grid-template-columns: minmax(0, 1fr); }
-      .rb-timeseries label.wide, .rb-timeseries__fields { grid-column: auto; }
-      .rb-timeseries__settings-actions { bottom: -10px; }
+      .rb-timeseries__settings { inset: 43px 6px 6px; width: auto; padding: 9px; -webkit-overflow-scrolling: touch; }
+      .rb-timeseries__series-fields, .rb-timeseries__advanced-grid { grid-template-columns: minmax(0, 1fr); }
+      .rb-timeseries__series-fields .wide { grid-column: auto; }
+      .rb-timeseries__custom-row { grid-template-columns: minmax(0, 1fr) auto; }
+      .rb-timeseries__custom-row select { grid-column: 1 / -1; }
       .rb-timeseries__footer { align-items: flex-start; flex-direction: column; }
       .rb-timeseries__legend { width: 100%; }
     }
     @media (max-height: 420px) {
-      .rb-timeseries__settings { top: 38px; }
+      .rb-timeseries__settings { top: 37px; }
       .rb-timeseries__toolbar { gap: 5px; }
       .rb-timeseries__toolbar button { padding: 4px 7px; }
-      .rb-timeseries__footer { display: flex; flex-direction: row; align-items: center; }
+      .rb-timeseries__footer { flex-direction: row; align-items: center; }
       .rb-timeseries__legend { display: none; }
     }
   </style>
@@ -198,56 +125,46 @@ const PANEL_MARKUP = `
     </header>
     <form class="rb-timeseries__settings" data-role="settings" aria-label="Time series configuration" hidden>
       <div class="rb-timeseries__settings-header">
-        <h3>Choose ROS data</h3>
+        <h3>Series</h3>
         <button type="button" data-action="close-settings" aria-label="Close configuration">×</button>
       </div>
-      <div class="rb-timeseries__source-grid">
-        <label class="wide">Topic
-          <span class="rb-timeseries__topic-row">
-            <strong data-role="selected-topic">No topic selected</strong>
-            <button type="button" data-action="choose-topic" aria-label="Choose ROS topic">Choose topic…</button>
-          </span>
-        </label>
-        <div class="rb-timeseries__fields">
-          <label>Data fields
-            <select data-field="fieldPicker" aria-label="Data fields">
-              <option value="">Add a numeric field…</option>
-            </select>
-          </label>
-          <input data-field="fieldPaths" type="hidden" />
-          <div class="rb-timeseries__selected-fields" data-role="selected-fields"></div>
-          <p class="rb-timeseries__helper" data-role="fields-help">Numeric fields are detected automatically from live messages.</p>
-        </div>
+      <div class="rb-timeseries__add-row">
+        <button type="button" data-action="choose-topic">Add ROS topic…</button>
+        <select data-field="fieldPicker" aria-label="Add detected numeric field"><option value="">Add detected field…</option></select>
+      </div>
+      <div class="rb-timeseries__series-list" data-role="series-list"></div>
+      <p class="rb-timeseries__helper" data-role="series-help">Choose a topic. Numeric fields are detected from its first live message.</p>
+      <div class="rb-timeseries__custom-row">
+        <select data-field="customSource" aria-label="Custom field topic"><option value="">Topic…</option></select>
+        <input data-field="customField" aria-label="Custom numeric field" placeholder="pose.position.x" autocomplete="off" />
+        <button type="button" data-action="add-custom-field">Add field</button>
       </div>
       <details class="rb-timeseries__advanced">
-        <summary>Advanced plot settings</summary>
+        <summary>Plot settings</summary>
         <div class="rb-timeseries__advanced-grid">
           <label>Window (seconds)<input data-field="timeWindowSec" type="number" min="1" max="600" step="1" /></label>
-          <label>Sample cap<input data-field="sampleLimit" type="number" min="100" max="10000" step="100" /></label>
+          <label>Samples per series<input data-field="sampleLimit" type="number" min="100" max="10000" step="100" /></label>
           <label>Bridge throttle
             <select data-field="throttleMs">
               <option value="0">Every message</option><option value="16">60 Hz</option><option value="33">30 Hz</option>
               <option value="50">20 Hz</option><option value="100">10 Hz</option><option value="250">4 Hz</option><option value="500">2 Hz</option>
             </select>
           </label>
+          <label>Graph refresh
+            <select data-field="renderFps"><option value="5">5 Hz</option><option value="10">10 Hz</option><option value="20">20 Hz</option><option value="30">30 Hz</option><option value="60">60 Hz</option></select>
+          </label>
           <label class="rb-timeseries__check"><input data-field="autoScale" type="checkbox" />Auto Y range</label>
+          <label class="rb-timeseries__check"><input data-field="showPoints" type="checkbox" />Point markers</label>
           <label>Y minimum<input data-field="minY" type="number" step="any" /></label>
           <label>Y maximum<input data-field="maxY" type="number" step="any" /></label>
-          <label class="rb-timeseries__check"><input data-field="showPoints" type="checkbox" />Point markers</label>
-          <label class="wide">Custom numeric field
-            <span class="rb-timeseries__input-row">
-              <input data-field="customField" placeholder="pose.position.x" autocomplete="off" />
-              <button type="button" data-action="add-custom-field">Add field</button>
-            </span>
-          </label>
         </div>
       </details>
       <div class="rb-timeseries__settings-actions">
-        <button type="button" data-action="apply-settings">Apply</button>
-        <button type="button" data-action="close-settings">Cancel</button>
+        <button type="button" data-action="apply-settings">Apply plot settings</button>
+        <button type="button" data-action="close-settings">Done</button>
       </div>
     </form>
-    <div class="rb-timeseries__chart" data-role="chart"><canvas aria-label="ROS numeric time-series chart"></canvas><div class="rb-timeseries__empty" data-role="empty">Choose a topic. Numeric fields are detected automatically.</div></div>
+    <div class="rb-timeseries__chart" data-role="chart"><canvas aria-label="ROS numeric time-series chart"></canvas><div class="rb-timeseries__empty" data-role="empty">Add a ROS topic to begin.</div></div>
     <footer class="rb-timeseries__footer"><div class="rb-timeseries__legend" data-role="legend"></div><span class="rb-timeseries__stats" data-role="stats">0 samples</span></footer>
   </section>
 `;
@@ -258,109 +175,32 @@ const createPanelInstance = (
   let root: HTMLElement | null = null;
   let canvas: HTMLCanvasElement | null = null;
   let settings: HTMLFormElement | null = null;
-  let topic: RoboBoyRosSubscription | null = null;
-  let subscriptionGeneration = 0;
   let viewportUnsubscribe: (() => void) | null = null;
   let connectionUnsubscribe: (() => void) | null = null;
+  let subscriptions: SubscriptionController | null = null;
   let animationFrame: number | null = null;
+  let renderTimer: number | null = null;
+  let lastRenderAt = 0;
   let active = true;
   let paused = false;
-  let awaitingFieldDetection = false;
-  let receivedMessages = 0;
+  let statusText = "";
+  let statusTone = "";
+  let connection = context.connection.getSnapshot();
+  let lastConnectionGeneration = connection.generation;
+
   const storedConfig = context.storage?.get(
     "config",
     DEFAULT_CONFIG as unknown as RoboBoyJsonObject,
   );
-  const storedCandidate =
-    storedConfig && typeof storedConfig === "object"
-      ? (storedConfig as Partial<TimeseriesConfig>)
-      : {};
-  let needsLegacyFieldMigration =
-    storedCandidate.schemaVersion !== 2 &&
-    Array.isArray(storedCandidate.fieldPaths) &&
-    storedCandidate.fieldPaths.some(
-      (path) => typeof path === "string" && isRosTimestampField(path),
-    ) &&
-    storedCandidate.fieldPaths.some(
-      (path) => typeof path === "string" && !isRosTimestampField(path),
-    );
   let config = sanitizeConfig(storedConfig);
-  let draftFieldPaths = [...config.fieldPaths];
-  let discoveredFields: string[] = [];
-  let discoveredTopic = "";
-  const samples = new Map<string, TimeseriesSample[]>();
+  const buffers = new Map<string, SampleBuffer>();
+  const filters = new Map<string, RealtimeFilter>();
+  const discoveredFields = new Map<string, string[]>();
 
   const query = <T extends Element>(selector: string): T => {
     const element = root?.querySelector<T>(selector);
     if (!element) throw new Error(`ROS Time Series is missing ${selector}.`);
     return element;
-  };
-
-  const renderSelectedTopic = () => {
-    if (!root) return;
-    const selected = query<HTMLElement>('[data-role="selected-topic"]');
-    selected.textContent = config.topic
-      ? `${config.topic}${config.messageType ? ` · ${config.messageType}` : ""}`
-      : "No topic selected";
-    selected.title = selected.textContent;
-  };
-
-  const renderFieldControls = () => {
-    if (!root) return;
-    const hidden = query<HTMLInputElement>('[data-field="fieldPaths"]');
-    const picker = query<HTMLSelectElement>('[data-field="fieldPicker"]');
-    const selected = query<HTMLElement>('[data-role="selected-fields"]');
-    const helper = query<HTMLElement>('[data-role="fields-help"]');
-    hidden.value = draftFieldPaths.join(", ");
-    selected.replaceChildren();
-
-    if (draftFieldPaths.length === 0) {
-      const automatic = document.createElement("span");
-      automatic.className = "rb-timeseries__helper";
-      automatic.textContent = "Auto-detect is enabled";
-      selected.append(automatic);
-    } else {
-      draftFieldPaths.forEach((path) => {
-        const chip = document.createElement("span");
-        chip.className = "rb-timeseries__field-chip";
-        chip.append(document.createTextNode(path));
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.dataset.removeField = path;
-        remove.setAttribute("aria-label", `Remove ${path}`);
-        remove.textContent = "×";
-        chip.append(remove);
-        selected.append(chip);
-      });
-    }
-
-    picker.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Add a numeric field…";
-    picker.append(placeholder);
-    discoveredFields
-      .filter((path) => !draftFieldPaths.includes(path))
-      .sort((left, right) => left.localeCompare(right))
-      .forEach((path) => {
-        const option = document.createElement("option");
-        option.value = path;
-        option.textContent = path;
-        picker.append(option);
-      });
-    picker.value = "";
-    helper.textContent = discoveredFields.length
-      ? `${discoveredFields.length} numeric field${discoveredFields.length === 1 ? "" : "s"} available from the latest message.`
-      : config.topic
-        ? "Waiting for a live message to detect numeric fields…"
-        : "Numeric fields are detected automatically after you choose a topic.";
-  };
-
-  const addDraftField = (path: string) => {
-    const normalized = parseFieldPaths(path, 1)[0];
-    if (!normalized || draftFieldPaths.includes(normalized)) return;
-    draftFieldPaths = [...draftFieldPaths, normalized].slice(0, 8);
-    renderFieldControls();
   };
 
   const persistConfig = () => {
@@ -375,46 +215,445 @@ const createPanelInstance = (
     message: string,
     tone: "idle" | "live" | "warn" = "idle",
   ) => {
-    if (!root) return;
+    if (!root || (statusText === message && statusTone === tone)) return;
+    statusText = message;
+    statusTone = tone;
     query<HTMLElement>('[data-role="status"]').textContent = message;
     query<HTMLElement>(".rb-timeseries__dot").dataset.tone = tone;
   };
 
-  const totalSamples = () =>
-    [...samples.values()].reduce((total, series) => total + series.length, 0);
+  const ensureRuntime = (series: TimeseriesSeriesConfig, reset = false) => {
+    if (!series.fieldPath) return;
+    const current = buffers.get(series.id);
+    if (reset || !current || current.capacity !== config.sampleLimit) {
+      buffers.set(series.id, new SampleBuffer(config.sampleLimit));
+    }
+    if (reset || !filters.has(series.id)) {
+      filters.set(series.id, new RealtimeFilter(series.filter));
+    }
+  };
 
-  const scheduleRender = () => {
+  const reconcileRuntime = (reset = false) => {
+    const ids = new Set(config.series.map((series) => series.id));
+    [...buffers.keys()].forEach((id) => {
+      if (!ids.has(id)) buffers.delete(id);
+    });
+    [...filters.keys()].forEach((id) => {
+      if (!ids.has(id)) filters.delete(id);
+    });
+    config.series.forEach((series) => ensureRuntime(series, reset));
+  };
+
+  const desiredSources = () =>
+    active && connection.status === "connected" ? getDesiredSources(config) : [];
+
+  const updatePauseButton = () => {
+    if (!root) return;
+    const button = query<HTMLButtonElement>('[data-action="pause"]');
+    button.disabled = config.series.every((series) => !series.enabled) || !context.ros;
+    button.textContent = paused ? "Resume" : "Pause";
+  };
+
+  const reconcileSubscriptions = (restart = false) => {
+    updatePauseButton();
+    const desired = desiredSources();
+    if (restart) subscriptions?.restart(desired);
+    else subscriptions?.reconcile(desired);
+    if (!active) setStatus("Inactive · subscriptions released");
+    else if (connection.status !== "connected") {
+      setStatus(`ROS ${connection.status}`, connection.status === "connecting" ? "warn" : "idle");
+    } else if (desired.length === 0) setStatus("Add or enable a series");
+    else if (!paused) setStatus(`Waiting for ${desired.length} topic${desired.length === 1 ? "" : "s"}…`);
+  };
+
+  const requestFrame = () => {
     if (!root || !active || animationFrame !== null) return;
     animationFrame = requestAnimationFrame(() => {
       animationFrame = null;
+      lastRenderAt = performance.now();
       renderChart();
     });
+  };
+
+  const scheduleRender = (immediate = false) => {
+    if (!root || !active) return;
+    if (immediate) {
+      if (renderTimer !== null) window.clearTimeout(renderTimer);
+      renderTimer = null;
+      requestFrame();
+      return;
+    }
+    if (renderTimer !== null || animationFrame !== null) return;
+    const interval = 1000 / config.renderFps;
+    const delay = Math.max(0, lastRenderAt + interval - performance.now());
+    renderTimer = window.setTimeout(() => {
+      renderTimer = null;
+      requestFrame();
+    }, delay);
+  };
+
+  const totalSamples = () =>
+    [...buffers.values()].reduce((total, buffer) => total + buffer.size, 0);
+
+  const uniqueSources = (): TopicSource[] => {
+    const sources = new Map<string, TopicSource>();
+    config.series.forEach((series) => {
+      const key = sourceKey(series.topic, series.messageType);
+      sources.set(key, { key, topic: series.topic, messageType: series.messageType, throttleMs: config.throttleMs });
+    });
+    return [...sources.values()];
+  };
+
+  const updateSeries = (
+    id: string,
+    mutate: (series: TimeseriesSeriesConfig) => TimeseriesSeriesConfig,
+    options: { reset?: boolean; reconcile?: boolean; renderControls?: boolean } = {},
+  ) => {
+    config = {
+      ...config,
+      series: config.series.map((series) => series.id === id ? mutate(series) : series),
+    };
+    if (options.reset) {
+      const series = config.series.find((item) => item.id === id);
+      if (series) ensureRuntime(series, true);
+    }
+    persistConfig();
+    if (options.renderControls !== false) renderSeriesControls();
+    if (options.reconcile) reconcileSubscriptions();
+    scheduleRender(true);
+  };
+
+  const addSeries = (
+    topic: string,
+    messageType: string,
+    fieldPath: string,
+    preferred?: Partial<TimeseriesSeriesConfig>,
+  ): TimeseriesSeriesConfig | null => {
+    if (config.series.length >= SERIES_LIMIT) {
+      setStatus(`Series limit reached (${SERIES_LIMIT})`, "warn");
+      return null;
+    }
+    if (config.series.some((series) =>
+      series.topic === topic && series.messageType === messageType && series.fieldPath === fieldPath
+    )) return null;
+    const used = new Set(config.series.map((series) => series.id));
+    const series: TimeseriesSeriesConfig = {
+      id: createSeriesId(topic, fieldPath || "pending", used),
+      topic,
+      messageType,
+      fieldPath,
+      enabled: preferred?.enabled !== false,
+      label: preferred?.label ?? "",
+      unit: preferred?.unit ?? "",
+      color: preferred?.color ?? COLORS[config.series.length % COLORS.length],
+      filter: preferred?.filter ?? { type: "raw" },
+    };
+    config = { ...config, series: [...config.series, series] };
+    ensureRuntime(series);
+    persistConfig();
+    renderSeriesControls();
+    reconcileSubscriptions();
+    scheduleRender(true);
+    return series;
+  };
+
+  const removeSeries = (id: string) => {
+    config = { ...config, series: config.series.filter((series) => series.id !== id) };
+    buffers.delete(id);
+    filters.delete(id);
+    persistConfig();
+    renderSeriesControls();
+    reconcileSubscriptions();
+    scheduleRender(true);
+  };
+
+  const renderSeriesControls = () => {
+    if (!root) return;
+    const list = query<HTMLElement>('[data-role="series-list"]');
+    const openSeries = new Set(
+      Array.from(list.querySelectorAll<HTMLDetailsElement>('details[open]'))
+        .map((details) => details.dataset.seriesId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    list.replaceChildren();
+    config.series.forEach((series) => {
+      const details = document.createElement("details");
+      details.className = "rb-timeseries__series-editor";
+      details.dataset.seriesId = series.id;
+      details.open = openSeries.has(series.id);
+      const summary = document.createElement("summary");
+      const enabled = document.createElement("input");
+      enabled.type = "checkbox";
+      enabled.checked = series.enabled;
+      enabled.dataset.seriesToggle = series.id;
+      enabled.setAttribute("aria-label", `Show ${displayName(series)}`);
+      enabled.addEventListener("click", (event) => event.stopPropagation());
+      const swatch = document.createElement("i");
+      swatch.className = "rb-timeseries__swatch";
+      swatch.style.backgroundColor = series.color;
+      const name = document.createElement("span");
+      name.className = "rb-timeseries__series-name";
+      name.textContent = `${displayName(series)}${series.unit ? ` (${series.unit})` : ""}`;
+      name.title = `${series.topic} · ${series.messageType}${series.fieldPath ? ` · ${series.fieldPath}` : ""}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.dataset.action = "remove-series";
+      remove.dataset.seriesId = series.id;
+      remove.setAttribute("aria-label", `Remove ${displayName(series)}`);
+      remove.textContent = "×";
+      summary.append(enabled, swatch, name, remove);
+      details.append(summary);
+
+      if (series.fieldPath) {
+        const fields = document.createElement("div");
+        fields.className = "rb-timeseries__series-fields";
+        fields.append(
+          createTextInput("Label", series.label, "seriesLabel", series.id, "Optional short name"),
+          createTextInput("Unit", series.unit, "seriesUnit", series.id, "m/s, °C, rad…"),
+          createFilterControl(series),
+        );
+        const source = document.createElement("p");
+        source.className = "rb-timeseries__helper wide";
+        source.textContent = `${series.topic} · ${series.fieldPath} · ${series.messageType}`;
+        fields.append(source);
+        details.append(fields);
+      }
+      list.append(details);
+    });
+
+    const picker = query<HTMLSelectElement>('[data-field="fieldPicker"]');
+    picker.replaceChildren(new Option("Add detected field…", ""));
+    uniqueSources().forEach((source) => {
+      const available = (discoveredFields.get(source.key) ?? []).filter((field) =>
+        !config.series.some((series) => series.topic === source.topic && series.messageType === source.messageType && series.fieldPath === field)
+      );
+      if (!available.length) return;
+      const group = document.createElement("optgroup");
+      group.label = source.topic;
+      available.forEach((field) => group.append(new Option(field, JSON.stringify({ key: source.key, field }))));
+      picker.append(group);
+    });
+    picker.disabled = config.series.length >= SERIES_LIMIT;
+
+    const customSource = query<HTMLSelectElement>('[data-field="customSource"]');
+    const previousSource = customSource.value;
+    customSource.replaceChildren(new Option("Topic…", ""));
+    uniqueSources().forEach((source) => customSource.append(new Option(source.topic, source.key)));
+    customSource.value = Array.from(customSource.options).some((option) => option.value === previousSource) ? previousSource : customSource.options[1]?.value ?? "";
+
+    const helper = query<HTMLElement>('[data-role="series-help"]');
+    const pending = config.series.filter((series) => !series.fieldPath).length;
+    helper.textContent = config.series.length === 0
+      ? "Choose a topic. Numeric fields are detected from its first live message."
+      : `${config.series.length} of ${SERIES_LIMIT} series configured${pending ? ` · ${pending} awaiting field detection` : ""}. Series changes save immediately.`;
+    updatePauseButton();
+  };
+
+  const createTextInput = (
+    labelText: string,
+    value: string,
+    dataName: string,
+    id: string,
+    placeholder: string,
+  ): HTMLLabelElement => {
+    const label = document.createElement("label");
+    label.append(document.createTextNode(labelText));
+    const input = document.createElement("input");
+    input.value = value;
+    input.placeholder = placeholder;
+    input.dataset[dataName] = id;
+    input.maxLength = dataName === "seriesUnit" ? 24 : 80;
+    label.append(input);
+    return label;
+  };
+
+  const createFilterControl = (series: TimeseriesSeriesConfig): HTMLLabelElement => {
+    const label = document.createElement("label");
+    label.className = "wide";
+    label.append(document.createTextNode("Smoothing"));
+    const row = document.createElement("span");
+    row.className = "rb-timeseries__filter-row";
+    const select = document.createElement("select");
+    select.dataset.seriesFilter = series.id;
+    select.append(
+      new Option("Raw signal", "raw"),
+      new Option("Moving average", "movingAverage"),
+      new Option("Exponential average", "ema"),
+    );
+    select.value = series.filter.type;
+    row.append(select);
+    if (series.filter.type !== "raw") {
+      const parameter = document.createElement("input");
+      parameter.type = "number";
+      parameter.dataset.seriesFilterParameter = series.id;
+      if (series.filter.type === "movingAverage") {
+        parameter.value = String(series.filter.window);
+        parameter.min = "2";
+        parameter.max = "500";
+        parameter.step = "1";
+        parameter.title = "Sample window";
+        parameter.setAttribute("aria-label", "Moving average sample window");
+      } else {
+        parameter.value = String(series.filter.alpha);
+        parameter.min = "0.01";
+        parameter.max = "1";
+        parameter.step = "0.01";
+        parameter.title = "EMA alpha";
+        parameter.setAttribute("aria-label", "Exponential average alpha");
+      }
+      row.append(parameter);
+    }
+    label.append(row);
+    return label;
+  };
+
+  const populatePlotInputs = () => {
+    query<HTMLInputElement>('[data-field="timeWindowSec"]').value = String(config.timeWindowSec);
+    query<HTMLInputElement>('[data-field="sampleLimit"]').value = String(config.sampleLimit);
+    query<HTMLSelectElement>('[data-field="throttleMs"]').value = String(config.throttleMs);
+    query<HTMLSelectElement>('[data-field="renderFps"]').value = String(config.renderFps);
+    query<HTMLInputElement>('[data-field="autoScale"]').checked = config.autoScale;
+    query<HTMLInputElement>('[data-field="showPoints"]').checked = config.showPoints;
+    query<HTMLInputElement>('[data-field="minY"]').value = String(config.minY);
+    query<HTMLInputElement>('[data-field="maxY"]').value = String(config.maxY);
+    query<HTMLInputElement>('[data-field="minY"]').disabled = config.autoScale;
+    query<HTMLInputElement>('[data-field="maxY"]').disabled = config.autoScale;
+  };
+
+  const readPlotInputs = (): TimeseriesConfig => sanitizeConfig({
+    ...config,
+    schemaVersion: 3,
+    series: config.series,
+    timeWindowSec: query<HTMLInputElement>('[data-field="timeWindowSec"]').valueAsNumber,
+    sampleLimit: query<HTMLInputElement>('[data-field="sampleLimit"]').valueAsNumber,
+    throttleMs: Number(query<HTMLSelectElement>('[data-field="throttleMs"]').value),
+    renderFps: Number(query<HTMLSelectElement>('[data-field="renderFps"]').value),
+    autoScale: query<HTMLInputElement>('[data-field="autoScale"]').checked,
+    showPoints: query<HTMLInputElement>('[data-field="showPoints"]').checked,
+    minY: query<HTMLInputElement>('[data-field="minY"]').valueAsNumber,
+    maxY: query<HTMLInputElement>('[data-field="maxY"]').valueAsNumber,
+  });
+
+  const chooseTopic = async () => {
+    if (!context.ros || typeof context.ros.selectTopic !== "function") {
+      setStatus("Connect ROS before choosing a topic", "warn");
+      return;
+    }
+    setStatus("Waiting for topic approval…");
+    try {
+      const selected: RoboBoyRosTopic = await context.ros.selectTopic();
+      if (!root) return;
+      const key = sourceKey(selected.name, selected.messageType);
+      if (config.series.some((series) => sourceKey(series.topic, series.messageType) === key)) {
+        reconcileSubscriptions();
+        setStatus(`${selected.name} is already configured`, "warn");
+        return;
+      }
+      addSeries(selected.name, selected.messageType, "");
+      setStatus(`Waiting for ${selected.name} fields…`);
+    } catch (error) {
+      if (!root) return;
+      context.logger.info("ROS topic selection was not completed.", error);
+      setStatus("Topic selection cancelled", "warn");
+    }
+  };
+
+  const expandPendingSeries = (source: TopicSource, fields: readonly string[]) => {
+    const pending = config.series.find((series) =>
+      series.fieldPath === "" && sourceKey(series.topic, series.messageType) === source.key
+    );
+    if (!pending) return;
+    const remaining = SERIES_LIMIT - config.series.length + 1;
+    const selected = chooseAutoPlotFields(fields, Math.min(AUTO_PLOT_FIELD_LIMIT, remaining));
+    if (!selected.length) {
+      setStatus(`No numeric fields found on ${source.topic}`, "warn");
+      return;
+    }
+    const used = new Set(config.series.map((series) => series.id));
+    const replacement = selected.map((fieldPath, index): TimeseriesSeriesConfig => {
+      const id = index === 0 ? pending.id : createSeriesId(source.topic, fieldPath, used);
+      used.add(id);
+      return {
+        ...pending,
+        id,
+        fieldPath,
+        color: COLORS[(config.series.indexOf(pending) + index) % COLORS.length],
+      };
+    });
+    config = {
+      ...config,
+      series: config.series.flatMap((series) => series.id === pending.id ? replacement : [series]),
+    };
+    buffers.delete(pending.id);
+    filters.delete(pending.id);
+    reconcileRuntime();
+    persistConfig();
+    renderSeriesControls();
+  };
+
+  const onSourceMessage = (source: TopicSource, message: unknown) => {
+    if (!active) return;
+    if (!discoveredFields.has(source.key)) {
+      const fields = discoverNumericFields(message, {
+        maxDepth: 8,
+        maxArrayItems: DISCOVERED_FIELD_LIMIT,
+        maxFields: DISCOVERED_FIELD_LIMIT,
+      });
+      discoveredFields.set(source.key, fields);
+      expandPendingSeries(source, fields);
+      renderSeriesControls();
+    }
+
+    const now = Date.now();
+    let captured = 0;
+    config.series.forEach((series) => {
+      if (!series.enabled || !series.fieldPath || sourceKey(series.topic, series.messageType) !== source.key) return;
+      const value = getNumericValueAtPath(message, series.fieldPath);
+      if (value === null) return;
+      ensureRuntime(series);
+      const filtered = filters.get(series.id)!.next(value);
+      if (!paused) {
+        buffers.get(series.id)!.push(
+          { time: now, value: filtered },
+          now - config.timeWindowSec * 1000,
+        );
+      }
+      captured += 1;
+    });
+    if (paused) setStatus("Paused · ROS remains connected", "warn");
+    else if (captured > 0) {
+      const count = getDesiredSources(config).length;
+      setStatus(`Live · ${count} topic${count === 1 ? "" : "s"}`, "live");
+      scheduleRender();
+    }
   };
 
   const renderLegend = () => {
     if (!root) return;
     const legend = query<HTMLElement>('[data-role="legend"]');
     legend.replaceChildren();
-    config.fieldPaths.forEach((path, index) => {
-      const series = samples.get(path) ?? [];
-      const item = document.createElement("span");
-      item.className = "rb-timeseries__series";
+    config.series.filter((series) => series.fieldPath).forEach((series) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.dataset.action = "toggle-series";
+      item.dataset.seriesId = series.id;
+      item.setAttribute("aria-pressed", String(series.enabled));
+      item.title = `${series.enabled ? "Hide" : "Show"} ${displayName(series)}`;
       const swatch = document.createElement("i");
-      swatch.style.backgroundColor = COLORS[index % COLORS.length];
+      swatch.className = "rb-timeseries__swatch";
+      swatch.style.backgroundColor = series.color;
       const label = document.createElement("span");
-      label.textContent = path;
+      label.textContent = displayName(series);
       const latest = document.createElement("strong");
-      latest.textContent = series.length
-        ? series[series.length - 1].value.toPrecision(6)
-        : "—";
+      const sample = buffers.get(series.id)?.latest();
+      latest.textContent = sample ? `${Number(sample.value.toPrecision(6))}${series.unit ? ` ${series.unit}` : ""}` : "—";
       item.append(swatch, label, latest);
       legend.append(item);
     });
-    const sampleCount = totalSamples();
-    query<HTMLElement>('[data-role="stats"]').textContent =
-      `${sampleCount.toLocaleString()} sample${sampleCount === 1 ? "" : "s"}`;
-    query<HTMLButtonElement>('[data-action="export"]').disabled =
-      totalSamples() === 0;
+    const count = totalSamples();
+    const topicCount = uniqueSources().length;
+    query<HTMLElement>('[data-role="stats"]').textContent = `${count.toLocaleString()} samples · ${topicCount} topic${topicCount === 1 ? "" : "s"}`;
+    query<HTMLButtonElement>('[data-action="export"]').disabled = count === 0;
   };
 
   const renderChart = () => {
@@ -434,27 +673,31 @@ const createPanelInstance = (
     drawing.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     drawing.clearRect(0, 0, width, height);
 
-    const visibleSamples = config.fieldPaths.flatMap(
-      (path) => samples.get(path) ?? [],
-    );
+    const visible = config.series.filter((series) => series.enabled && series.fieldPath && (buffers.get(series.id)?.size ?? 0) > 0);
     const empty = query<HTMLElement>('[data-role="empty"]');
-    empty.hidden = visibleSamples.length > 0;
-    if (visibleSamples.length === 0) {
+    empty.hidden = visible.length > 0;
+    if (!visible.length) {
+      empty.textContent = config.series.length === 0
+        ? "Add a ROS topic to begin."
+        : config.series.every((series) => !series.enabled)
+          ? "All series are hidden. Use the legend or Configure to show one."
+          : "Waiting for numeric ROS messages…";
       renderLegend();
       return;
     }
 
-    const padding = { left: 58, right: 18, top: 18, bottom: 32 };
+    const latestTimes = visible.map((series) => buffers.get(series.id)?.latest()?.time ?? 0);
+    const newestTime = Math.max(...latestTimes);
+    const oldestTime = newestTime - config.timeWindowSec * 1000;
+    const rendered = new Map<string, TimeseriesSample[]>();
+    visible.forEach((series) => {
+      rendered.set(series.id, buffers.get(series.id)!.toArray(oldestTime));
+    });
+    const allSamples = [...rendered.values()].flat();
+    const padding = { left: 58, right: 18, top: 20, bottom: 32 };
     const chartWidth = Math.max(1, width - padding.left - padding.right);
     const chartHeight = Math.max(1, height - padding.top - padding.bottom);
-    const range = getPlotRange(
-      visibleSamples,
-      config.autoScale,
-      config.minY,
-      config.maxY,
-    );
-    const newestTime = Math.max(...visibleSamples.map((sample) => sample.time));
-    const oldestTime = newestTime - config.timeWindowSec * 1000;
+    const range = getPlotRange(allSamples, config.autoScale, config.minY, config.maxY);
     const valueSpan = Math.max(1e-12, range.max - range.min);
 
     drawing.lineWidth = 1;
@@ -471,11 +714,7 @@ const createPanelInstance = (
       drawing.stroke();
       drawing.fillStyle = "#91a0b0";
       drawing.textAlign = "right";
-      drawing.fillText(
-        Number(value.toPrecision(4)).toString(),
-        padding.left - 8,
-        y,
-      );
+      drawing.fillText(Number(value.toPrecision(4)).toString(), padding.left - 8, y);
     }
     for (let index = 0; index <= 5; index += 1) {
       const ratio = index / 5;
@@ -487,46 +726,36 @@ const createPanelInstance = (
       drawing.stroke();
       drawing.fillStyle = "#91a0b0";
       drawing.textAlign = "center";
-      drawing.fillText(
-        `${(-config.timeWindowSec + ratio * config.timeWindowSec).toFixed(0)}s`,
-        x,
-        height - 13,
-      );
+      drawing.fillText(`${(-config.timeWindowSec + ratio * config.timeWindowSec).toFixed(0)}s`, x, height - 13);
+    }
+    const units = [...new Set(visible.map((series) => series.unit).filter(Boolean))];
+    if (units.length === 1) {
+      drawing.fillStyle = "#91a0b0";
+      drawing.textAlign = "left";
+      drawing.fillText(units[0], padding.left, 10);
     }
 
-    config.fieldPaths.forEach((path, seriesIndex) => {
-      const series = (samples.get(path) ?? []).filter(
-        (sample) => sample.time >= oldestTime,
-      );
-      if (series.length === 0) return;
-      drawing.strokeStyle = COLORS[seriesIndex % COLORS.length];
-      drawing.fillStyle = COLORS[seriesIndex % COLORS.length];
+    visible.forEach((series) => {
+      const samples = decimateSamples(rendered.get(series.id) ?? [], Math.max(80, chartWidth * 2));
+      if (!samples.length) return;
+      drawing.strokeStyle = series.color;
+      drawing.fillStyle = series.color;
       drawing.lineWidth = 1.7;
       drawing.lineJoin = "round";
       drawing.beginPath();
-      series.forEach((sample, index) => {
-        const x =
-          padding.left +
-          ((sample.time - oldestTime) / (config.timeWindowSec * 1000)) *
-            chartWidth;
-        const y =
-          padding.top +
-          (1 - (sample.value - range.min) / valueSpan) * chartHeight;
+      samples.forEach((sample, index) => {
+        const x = padding.left + ((sample.time - oldestTime) / (config.timeWindowSec * 1000)) * chartWidth;
+        const y = padding.top + (1 - (sample.value - range.min) / valueSpan) * chartHeight;
         if (index === 0) drawing.moveTo(x, y);
         else drawing.lineTo(x, y);
       });
       drawing.stroke();
       if (config.showPoints) {
-        series.forEach((sample) => {
-          const x =
-            padding.left +
-            ((sample.time - oldestTime) / (config.timeWindowSec * 1000)) *
-              chartWidth;
-          const y =
-            padding.top +
-            (1 - (sample.value - range.min) / valueSpan) * chartHeight;
+        samples.forEach((sample) => {
+          const x = padding.left + ((sample.time - oldestTime) / (config.timeWindowSec * 1000)) * chartWidth;
+          const y = padding.top + (1 - (sample.value - range.min) / valueSpan) * chartHeight;
           drawing.beginPath();
-          drawing.arc(x, y, 2.2, 0, Math.PI * 2);
+          drawing.arc(x, y, 2.1, 0, Math.PI * 2);
           drawing.fill();
         });
       }
@@ -535,245 +764,21 @@ const createPanelInstance = (
   };
 
   const clearSamples = () => {
-    samples.clear();
-    config.fieldPaths.forEach((path) => samples.set(path, []));
-    receivedMessages = 0;
-    scheduleRender();
-  };
-
-  const unsubscribeTopic = () => {
-    subscriptionGeneration += 1;
-    const previous = topic;
-    topic = null;
-    if (previous) {
-      void previous
-        .unsubscribe()
-        .catch((error) =>
-          context.logger.warn("ROS topic cleanup failed.", error),
-        );
-    }
-  };
-
-  const onMessage = (message: unknown) => {
-    if (!active || paused) return;
-    if (discoveredTopic !== config.topic || discoveredFields.length === 0) {
-      discoveredFields = discoverNumericFields(message, {
-        maxDepth: 8,
-        maxArrayItems: DISCOVERED_FIELD_LIMIT,
-        maxFields: DISCOVERED_FIELD_LIMIT,
-      });
-      discoveredTopic = config.topic;
-      renderFieldControls();
-    }
-    if (needsLegacyFieldMigration) {
-      const migratedFields = migrateLegacyAutoPlotFields(
-        config.fieldPaths,
-        discoveredFields,
-        AUTO_PLOT_FIELD_LIMIT,
-      );
-      config = { ...config, fieldPaths: migratedFields };
-      draftFieldPaths = [...migratedFields];
-      needsLegacyFieldMigration = false;
-      persistConfig();
-      renderFieldControls();
-      clearSamples();
-    }
-    if (awaitingFieldDetection) {
-      if (discoveredFields.length === 0) {
-        setStatus("No numeric fields detected", "warn");
-        return;
-      }
-      const autoPlotFields = chooseAutoPlotFields(
-        discoveredFields,
-        AUTO_PLOT_FIELD_LIMIT,
-      );
-      config = { ...config, fieldPaths: autoPlotFields };
-      draftFieldPaths = [...autoPlotFields];
-      awaitingFieldDetection = false;
-      persistConfig();
-      renderFieldControls();
-      clearSamples();
-    }
-
-    const now = Date.now();
-    let captured = 0;
-    config.fieldPaths.forEach((path) => {
-      const value = getNumericValueAtPath(message, path);
-      if (value === null) return;
-      const next = [...(samples.get(path) ?? []), { time: now, value }];
-      samples.set(
-        path,
-        trimSamples(next, now, config.timeWindowSec, config.sampleLimit),
-      );
-      captured += 1;
-    });
-    receivedMessages += 1;
-    if (captured === 0) {
-      if (receivedMessages % 30 === 1)
-        setStatus(
-          "Configured fields are not numeric in received messages",
-          "warn",
-        );
-      return;
-    }
-    setStatus(`Live · ${config.topic}`, "live");
-    scheduleRender();
-  };
-
-  const configureSubscription = () => {
-    unsubscribeTopic();
-    clearSamples();
-    awaitingFieldDetection = config.fieldPaths.length === 0;
-    const pauseButton = query<HTMLButtonElement>('[data-action="pause"]');
-    pauseButton.disabled = !config.topic || !context.ros;
-    if (!context.ros) {
-      setStatus("ROS is unavailable", "warn");
-      return;
-    }
-    if (!config.topic) {
-      setStatus("Choose a topic in Configure");
-      return;
-    }
-    if (!config.messageType) {
-      setStatus("Enter the ROS message type", "warn");
-      return;
-    }
-
-    const generation = ++subscriptionGeneration;
-    void context.ros
-      .subscribe(
-        {
-          topic: config.topic,
-          messageType: config.messageType,
-          queueLength: 1,
-          throttleMs: config.throttleMs,
-        },
-        onMessage,
-      )
-      .then(
-        (subscription) => {
-          if (generation !== subscriptionGeneration) {
-            void subscription.unsubscribe();
-            return;
-          }
-          topic = subscription;
-        },
-        (error) => {
-          if (generation !== subscriptionGeneration) return;
-          context.logger.warn("ROS topic subscription failed.", error);
-          const message =
-            error instanceof Error ? error.message : String(error);
-          setStatus(
-            message.includes("not permitted")
-              ? `Reapprove ${config.topic} in Configure`
-              : "Unable to subscribe to this ROS topic",
-            "warn",
-          );
-        },
-      );
-    setStatus(
-      awaitingFieldDetection
-        ? "Waiting to detect numeric fields…"
-        : "Waiting for messages…",
-    );
-  };
-
-  const populateConfigInputs = () => {
-    if (!root) return;
-    draftFieldPaths = [...config.fieldPaths];
-    renderSelectedTopic();
-    renderFieldControls();
-    query<HTMLInputElement>('[data-field="timeWindowSec"]').value = String(
-      config.timeWindowSec,
-    );
-    query<HTMLInputElement>('[data-field="sampleLimit"]').value = String(
-      config.sampleLimit,
-    );
-    query<HTMLSelectElement>('[data-field="throttleMs"]').value = String(
-      config.throttleMs,
-    );
-    query<HTMLInputElement>('[data-field="autoScale"]').checked =
-      config.autoScale;
-    query<HTMLInputElement>('[data-field="minY"]').value = String(config.minY);
-    query<HTMLInputElement>('[data-field="maxY"]').value = String(config.maxY);
-    query<HTMLInputElement>('[data-field="showPoints"]').checked =
-      config.showPoints;
-    query<HTMLInputElement>('[data-field="minY"]').disabled = config.autoScale;
-    query<HTMLInputElement>('[data-field="maxY"]').disabled = config.autoScale;
-  };
-
-  const readConfigInputs = (
-    overrides: Partial<TimeseriesConfig> = {},
-  ): TimeseriesConfig => {
-    return sanitizeConfig({
-      topic: overrides.topic ?? config.topic,
-      messageType: overrides.messageType ?? config.messageType,
-      fieldPaths:
-        overrides.fieldPaths ??
-        parseFieldPaths(
-          query<HTMLInputElement>('[data-field="fieldPaths"]').value,
-        ),
-      timeWindowSec: query<HTMLInputElement>('[data-field="timeWindowSec"]')
-        .valueAsNumber,
-      sampleLimit: query<HTMLInputElement>('[data-field="sampleLimit"]')
-        .valueAsNumber,
-      throttleMs: Number(
-        query<HTMLSelectElement>('[data-field="throttleMs"]').value,
-      ),
-      autoScale: query<HTMLInputElement>('[data-field="autoScale"]').checked,
-      minY: query<HTMLInputElement>('[data-field="minY"]').valueAsNumber,
-      maxY: query<HTMLInputElement>('[data-field="maxY"]').valueAsNumber,
-      showPoints: query<HTMLInputElement>('[data-field="showPoints"]').checked,
-    });
-  };
-
-  const chooseTopic = async () => {
-    if (!context.ros) {
-      setStatus("Connect ROS before choosing a topic", "warn");
-      return;
-    }
-    const topicSelectingRos = context.ros as typeof context.ros &
-      UserSelectedTopicRos;
-    if (typeof topicSelectingRos.selectTopic !== "function") {
-      setStatus("This Robo-Boy host does not support topic selection", "warn");
-      return;
-    }
-    setStatus("Waiting for topic approval…");
-    try {
-      const selected = await topicSelectingRos.selectTopic({
-        currentTopic: config.topic,
-      });
-      if (!root) return;
-      const topicChanged = selected.name !== config.topic;
-      if (topicChanged) {
-        draftFieldPaths = [];
-        discoveredFields = [];
-        discoveredTopic = "";
-      }
-      config = readConfigInputs({
-        topic: selected.name,
-        messageType: selected.messageType,
-        fieldPaths: draftFieldPaths,
-      });
-      persistConfig();
-      paused = false;
-      query<HTMLButtonElement>('[data-action="pause"]').textContent = "Pause";
-      renderSelectedTopic();
-      renderFieldControls();
-      setSettingsOpen(false);
-      configureSubscription();
-    } catch (error) {
-      if (!root) return;
-      context.logger.info("ROS topic selection was not completed.", error);
-      setStatus("Topic selection cancelled", "warn");
-    }
+    buffers.forEach((buffer) => buffer.clear());
+    filters.clear();
+    config.series.forEach((series) => ensureRuntime(series));
+    scheduleRender(true);
   };
 
   const exportCsv = () => {
     if (totalSamples() === 0) return;
-    const blob = new Blob([createCsv(samples)], {
-      type: "text/csv;charset=utf-8",
+    const data = new Map<string, TimeseriesSample[]>();
+    config.series.forEach((series) => {
+      const samples = buffers.get(series.id)?.toArray() ?? [];
+      if (!samples.length) return;
+      data.set(`${displayName(series)}${series.unit ? ` [${series.unit}]` : ""} · ${series.topic}:${series.fieldPath}`, samples);
     });
+    const blob = new Blob([createCsv(data)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -784,137 +789,188 @@ const createPanelInstance = (
 
   const setSettingsOpen = (open: boolean) => {
     if (!settings || !root) return;
-    if (open) populateConfigInputs();
+    if (open) {
+      renderSeriesControls();
+      populatePlotInputs();
+    }
     settings.hidden = !open;
-    query<HTMLButtonElement>('[data-action="configure"]').setAttribute(
-      "aria-expanded",
-      String(open),
-    );
-    scheduleRender();
+    query<HTMLButtonElement>('[data-action="configure"]').setAttribute("aria-expanded", String(open));
+    scheduleRender(true);
   };
 
-  const applySettings = () => {
-    config = readConfigInputs();
+  const applyPlotSettings = () => {
+    const previousThrottle = config.throttleMs;
+    config = readPlotInputs();
+    reconcileRuntime(true);
     persistConfig();
-    paused = false;
-    query<HTMLButtonElement>('[data-action="pause"]').textContent = "Pause";
     setSettingsOpen(false);
-    configureSubscription();
+    reconcileSubscriptions(previousThrottle !== config.throttleMs);
+    scheduleRender(true);
+  };
+
+  const setSeriesFilter = (id: string, filter: FilterConfig) => {
+    updateSeries(id, (series) => ({ ...series, filter }), { reset: true });
   };
 
   return {
     mount(container) {
       container.innerHTML = PANEL_MARKUP;
       root = container.querySelector<HTMLElement>(".rb-timeseries");
-      if (!root)
-        throw new Error("Unable to create the ROS Time Series panel root.");
+      if (!root) throw new Error("Unable to create the ROS Time Series panel root.");
       canvas = query<HTMLCanvasElement>("canvas");
       settings = query<HTMLFormElement>('[data-role="settings"]');
-      populateConfigInputs();
+      reconcileRuntime();
+      renderSeriesControls();
+      populatePlotInputs();
+
+      if (context.ros) {
+        subscriptions = new SubscriptionController(
+          (source, listener) => context.ros!.subscribe(
+            { topic: source.topic, messageType: source.messageType, queueLength: 1, throttleMs: source.throttleMs },
+            listener as (message: RoboBoyJsonObject) => void,
+          ),
+          onSourceMessage,
+          (source, error, operation) => {
+            context.logger.warn(`ROS ${operation} failed for ${source.topic}.`, error);
+            if (operation === "unsubscribe") return;
+            const message = error instanceof Error ? error.message : String(error);
+            setStatus(message.includes("not permitted") ? `Reapprove ${source.topic}` : `Unable to subscribe to ${source.topic}`, "warn");
+          },
+        );
+      }
 
       root.addEventListener("click", (event) => {
         const target = event.target instanceof Element ? event.target : null;
-        const removeField = target?.closest<HTMLElement>("[data-remove-field]")
-          ?.dataset.removeField;
-        if (removeField) {
-          draftFieldPaths = draftFieldPaths.filter(
-            (path) => path !== removeField,
-          );
-          renderFieldControls();
-          return;
-        }
-        const action =
-          target?.closest<HTMLElement>("[data-action]")?.dataset.action;
-        if (action === "configure") {
-          setSettingsOpen(settings!.hidden);
-        } else if (action === "close-settings") {
-          setSettingsOpen(false);
-        } else if (action === "choose-topic") {
-          void chooseTopic();
-        } else if (action === "apply-settings") {
-          applySettings();
+        const actionElement = target?.closest<HTMLElement>("[data-action]");
+        const action = actionElement?.dataset.action;
+        if (action === "configure") setSettingsOpen(settings!.hidden);
+        else if (action === "close-settings") setSettingsOpen(false);
+        else if (action === "choose-topic") void chooseTopic();
+        else if (action === "apply-settings") applyPlotSettings();
+        else if (action === "remove-series") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (actionElement?.dataset.seriesId) removeSeries(actionElement.dataset.seriesId);
+        } else if (action === "toggle-series") {
+          const id = actionElement?.dataset.seriesId;
+          const series = config.series.find((item) => item.id === id);
+          if (series) updateSeries(series.id, (item) => ({ ...item, enabled: !item.enabled }), { reconcile: true });
         } else if (action === "add-custom-field") {
+          const source = uniqueSources().find((item) => item.key === query<HTMLSelectElement>('[data-field="customSource"]').value);
           const input = query<HTMLInputElement>('[data-field="customField"]');
-          addDraftField(input.value);
-          input.value = "";
+          const field = parseFieldPath(input.value);
+          if (source && field) {
+            addSeries(source.topic, source.messageType, field);
+            input.value = "";
+          }
         } else if (action === "pause") {
           paused = !paused;
-          query<HTMLButtonElement>('[data-action="pause"]').textContent = paused
-            ? "Resume"
-            : "Pause";
-          setStatus(
-            paused ? "Paused" : `Live · ${config.topic}`,
-            paused ? "warn" : "live",
-          );
-        } else if (action === "clear") {
-          clearSamples();
-        } else if (action === "export") {
-          exportCsv();
-        }
+          updatePauseButton();
+          setStatus(paused ? "Paused · ROS remains connected" : "Resumed · waiting for messages", paused ? "warn" : "idle");
+        } else if (action === "clear") clearSamples();
+        else if (action === "export") exportCsv();
       });
+
       settings.addEventListener("submit", (event) => {
         event.preventDefault();
-        applySettings();
+        applyPlotSettings();
       });
-      query<HTMLInputElement>('[data-field="autoScale"]').addEventListener(
-        "change",
-        (event) => {
-          const autoScale = (event.currentTarget as HTMLInputElement).checked;
-          query<HTMLInputElement>('[data-field="minY"]').disabled = autoScale;
-          query<HTMLInputElement>('[data-field="maxY"]').disabled = autoScale;
-        },
-      );
-      query<HTMLSelectElement>('[data-field="fieldPicker"]').addEventListener(
-        "change",
-        (event) => {
-          const value = (event.currentTarget as HTMLSelectElement).value;
-          if (value) addDraftField(value);
-        },
-      );
+      root.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+        const toggleId = target.dataset.seriesToggle;
+        if (toggleId && target instanceof HTMLInputElement) {
+          updateSeries(toggleId, (series) => ({ ...series, enabled: target.checked }), { reconcile: true });
+          return;
+        }
+        const labelId = target.dataset.seriesLabel;
+        if (labelId) {
+          updateSeries(labelId, (series) => ({ ...series, label: target.value.trim().slice(0, 80) }), { renderControls: false });
+          return;
+        }
+        const unitId = target.dataset.seriesUnit;
+        if (unitId) {
+          updateSeries(unitId, (series) => ({ ...series, unit: target.value.trim().slice(0, 24) }), { renderControls: false });
+          return;
+        }
+        const filterId = target.dataset.seriesFilter;
+        if (filterId) {
+          const type = target.value;
+          setSeriesFilter(filterId, type === "movingAverage" ? { type, window: 10 } : type === "ema" ? { type, alpha: 0.2 } : { type: "raw" });
+          return;
+        }
+        const parameterId = target.dataset.seriesFilterParameter;
+        if (parameterId && target instanceof HTMLInputElement) {
+          const series = config.series.find((item) => item.id === parameterId);
+          if (series?.filter.type === "movingAverage") {
+            setSeriesFilter(parameterId, { type: "movingAverage", window: Math.min(500, Math.max(2, Math.round(target.valueAsNumber || 10))) });
+          } else if (series?.filter.type === "ema") {
+            setSeriesFilter(parameterId, { type: "ema", alpha: Math.min(1, Math.max(0.01, target.valueAsNumber || 0.2)) });
+          }
+          return;
+        }
+        if (target.matches('[data-field="fieldPicker"]') && target.value) {
+          try {
+            const selection = JSON.parse(target.value) as { key: string; field: string };
+            const source = uniqueSources().find((item) => item.key === selection.key);
+            if (source) addSeries(source.topic, source.messageType, selection.field);
+          } catch {
+            setStatus("Unable to add the selected field", "warn");
+          }
+          target.value = "";
+          return;
+        }
+        if (target.matches('[data-field="autoScale"]') && target instanceof HTMLInputElement) {
+          query<HTMLInputElement>('[data-field="minY"]').disabled = target.checked;
+          query<HTMLInputElement>('[data-field="maxY"]').disabled = target.checked;
+        }
+      });
 
-      viewportUnsubscribe = context.viewport.subscribe(() => scheduleRender());
-      connectionUnsubscribe = context.connection.subscribe((snapshot) => {
-        if (snapshot.status !== "connected")
-          setStatus(
-            `ROS ${snapshot.status}`,
-            snapshot.status === "connecting" ? "warn" : "idle",
-          );
+      viewportUnsubscribe = context.viewport.subscribe(() => scheduleRender(true));
+      connectionUnsubscribe = context.connection.subscribe((snapshot: RoboBoyPanelConnectionSnapshot) => {
+        const generationChanged = snapshot.generation !== lastConnectionGeneration;
+        connection = snapshot;
+        if (generationChanged) {
+          lastConnectionGeneration = snapshot.generation;
+          discoveredFields.clear();
+        }
+        reconcileSubscriptions(generationChanged && snapshot.status === "connected");
+        renderSeriesControls();
       });
-      configureSubscription();
-      scheduleRender();
+      if (!storedConfig || (storedConfig as { schemaVersion?: unknown }).schemaVersion !== 3) persistConfig();
+      reconcileSubscriptions();
+      scheduleRender(true);
     },
     setActive(isActive) {
       active = isActive;
       root?.toggleAttribute("data-inactive", !isActive);
       if (!isActive) {
         if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+        if (renderTimer !== null) window.clearTimeout(renderTimer);
         animationFrame = null;
-        setStatus("Inactive · sampling paused");
-      } else {
-        setStatus(
-          paused
-            ? "Paused"
-            : config.topic
-              ? `Live · ${config.topic}`
-              : "Choose a topic in Configure",
-          paused ? "warn" : "idle",
-        );
-        scheduleRender();
+        renderTimer = null;
       }
+      reconcileSubscriptions();
+      if (isActive) scheduleRender(true);
     },
     unmount() {
-      unsubscribeTopic();
+      subscriptions?.dispose();
+      subscriptions = null;
       viewportUnsubscribe?.();
       connectionUnsubscribe?.();
       viewportUnsubscribe = null;
       connectionUnsubscribe = null;
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      if (renderTimer !== null) window.clearTimeout(renderTimer);
       animationFrame = null;
+      renderTimer = null;
       root?.remove();
       root = null;
       canvas = null;
       settings = null;
-      samples.clear();
+      buffers.clear();
+      filters.clear();
+      discoveredFields.clear();
     },
   };
 };

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "la.tessel.roboboy.timeseries",
   "name": "ROS Time Series",
-  "description": "Plots configurable numeric fields from a ROS topic with pause, scaling, retention, and CSV controls.",
-  "version": "2.0.0",
+  "description": "Plots multiple ROS telemetry series with real-time smoothing, bounded history, and compact controls.",
+  "version": "2.1.0",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-iAiRQl0ng2Tk2ikcQeOHSFHWFDaL/ui2gUEyT83LYL0=",
+  "integrity": "sha256-X/GzKO86ogV9+pSktdslhYqqekj4A9DI/5eWgt/Ioyc=",
   "compatibility": {
     "panelApi": "^2.0.0",
     "roboboy": ">=0.3.0-0 <1.0.0"

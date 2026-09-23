@@ -1,6 +1,6 @@
 {
   "name": "@tessel-la/roboboy-timeseries-panel",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Configurable ROS time-series plotting panel for Robo-Boy",
   "type": "module",
   "license": "MIT",
